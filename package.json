@@ -1,0 +1,75 @@
+{
+  "name": "@chaindoc_io/mcp-server",
+  "version": "0.1.1",
+  "description": "Model Context Protocol server for Chaindoc — blockchain-verified document management, e-signatures, and embedded signing.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=18.18"
+  },
+  "bin": {
+    "chaindoc-mcp": "dist/transports/stdio.js"
+  },
+  "main": "dist/server.js",
+  "types": "dist/server.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/server.js",
+      "types": "./dist/server.d.ts"
+    },
+    "./stdio": {
+      "import": "./dist/transports/stdio.js",
+      "types": "./dist/transports/stdio.d.ts"
+    },
+    "./http": {
+      "import": "./dist/transports/http.js",
+      "types": "./dist/transports/http.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev:stdio": "tsx src/transports/stdio.ts",
+    "dev:http": "tsx src/transports/http.ts",
+    "start:stdio": "node dist/transports/stdio.js",
+    "start:http": "node dist/transports/http.js",
+    "lint": "eslint . --ext .ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "inspect": "npx @modelcontextprotocol/inspector node dist/transports/stdio.js",
+    "prepare": "npm run build"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "chaindoc",
+    "esignature",
+    "blockchain",
+    "documents",
+    "claude",
+    "anthropic"
+  ],
+  "dependencies": {
+    "@chaindoc_io/server-sdk": "^1.0.0",
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "express": "^4.21.0",
+    "pino": "^9.5.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.7.0",
+    "@typescript-eslint/eslint-plugin": "^8.10.0",
+    "@typescript-eslint/parser": "^8.10.0",
+    "eslint": "^9.13.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  }
+}

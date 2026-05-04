@@ -1,0 +1,6 @@
+{
+  "chaindoc": {
+    "command": "npx",
+    "args": ["-y", "@chaindoc_io/mcp-server"]
+  }
+}

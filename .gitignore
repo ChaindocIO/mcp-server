@@ -1,0 +1,15 @@
+node_modules
+dist
+coverage
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
+.vscode
+.idea
+.npmrc
+# Local-only npm config that may contain a literal token. The committed
+# .npmrc uses ${NPM_TOKEN} so it stays safe; this rule is a safety net
+# in case someone ever drops a literal token into a .local override.
+.npmrc.local

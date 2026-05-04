@@ -1,0 +1,8 @@
+{
+  "name": "chaindoc",
+  "version": "0.1.0",
+  "description": "Control signatures, invoices and contracts. Create and analyze documents in Chaindoc. Send sign requests and contracts.",
+  "author": {
+    "name": "Chaindoc"
+  }
+}
