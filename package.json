@@ -1,6 +1,6 @@
 {
   "name": "@chaindoc_io/mcp-server",
-  "version": "0.1.2",
+  "version": "0.1.4",
   "description": "Model Context Protocol server for Chaindoc — blockchain-verified document management, e-signatures, and embedded signing.",
   "license": "MIT",
   "homepage": "https://chaindoc.io",

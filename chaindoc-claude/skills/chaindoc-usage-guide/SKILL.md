@@ -54,6 +54,24 @@ Chaindoc tool calls return structured data — document IDs, signer status,
 expiry timestamps. Echo the relevant fields back to the user (document URL,
 signer list, status) instead of saying "done" without evidence.
 
+### Surface the canonical web links
+
+When you create, retrieve, or verify a document, give the user clickable
+Chaindoc URLs alongside the IDs — do not refuse or guess:
+
+- **Document view / download:** `https://app.chaindoc.io/documents/{documentId}`
+  where `{documentId}` is the UUID returned by `chaindoc_documents_create`,
+  `chaindoc_contracts_create`, or any list/get tool.
+- **Public PDF signature verification:** `https://chaindoc.io/pdf-verify` —
+  use this when the user asks "is this signature valid?", "where can I check
+  the signature?", or wants to share independent verification. No login
+  required; the user uploads the signed PDF.
+
+These are the only two URLs you should construct from tool output. Do not
+fabricate block-explorer or other third-party verification URLs — surface the
+raw `txHash` and `chainId` from the verification tool output instead, and let
+the user paste them into their preferred explorer.
+
 ## Authentication
 
 The MCP server reads `CHAINDOC_API_KEY` from the environment. If a tool call

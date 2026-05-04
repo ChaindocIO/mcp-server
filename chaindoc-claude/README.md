@@ -99,6 +99,19 @@ The skills trigger on natural-language phrasing:
 You can also reference Chaindoc directly: "in chaindoc, list invoices waiting
 on payment".
 
+## Viewing & verifying documents
+
+After Claude creates or retrieves a document, you can interact with it directly
+in the Chaindoc web app:
+
+- **View / download a document:** `https://app.chaindoc.io/documents/{documentId}`
+  — replace `{documentId}` with the UUID returned by tools like
+  `chaindoc_documents_create` or `chaindoc_contracts_create`.
+  Example: `https://app.chaindoc.io/documents/5d8e4682-b6d6-4069-bca0-5b3482ed55b1`
+- **Verify a signed PDF publicly:** [chaindoc.io/pdf-verify](https://chaindoc.io/pdf-verify)
+  — no login required. Upload the signed PDF and Chaindoc confirms whether the
+  signature and on-chain anchor are valid.
+
 ## Safety
 
 The usage guide skill instructs Claude to confirm any irreversible action
