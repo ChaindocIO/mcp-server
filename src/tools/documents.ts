@@ -3,21 +3,25 @@ import { defineTool, type ToolDefinition } from "./types.js";
 
 /**
  * Documents API
- *   POST   /documents
- *   PUT    /documents/:documentId
- *   PUT    /documents/:documentId/rights
- *   POST   /documents/verify
- *   GET    /documents/versions/:versionId/verification
+ *   POST   /api/v1/documents
+ *   PUT    /api/v1/documents/:documentId
+ *   PUT    /api/v1/documents/:documentId/rights
+ *   POST   /api/v1/documents/verify
+ *   GET    /api/v1/documents/versions/:versionId/verification
  */
 
+const MediaTypeEnum = z.enum(["document", "image", "video", "text", "call_to_action"]);
+
 const MediaHandleSchema = z.object({
-  type: z.string().describe("'document' | 'image' | 'video'"),
-  name: z.string().optional(),
+  type: MediaTypeEnum.describe("Media type returned by chaindoc_media_upload."),
+  name: z.string(),
   key: z.string(),
-  url: z.string().optional(),
+  url: z.string(),
   hash: z.string().optional(),
   size: z.number().optional(),
-  thumbnail: z.string().nullable().optional(),
+  thumbnail: z.string().optional(),
+  bluredThumbnail: z.string().optional(),
+  compressed: z.string().optional(),
 });
 
 const MetaPairSchema = z.object({
@@ -35,48 +39,59 @@ const AccessRoleSchema = z.object({
   level: z.enum(["read", "write"]),
 });
 
+const DocumentStatusEnum = z.enum([
+  "draft",
+  "published",
+  "archived",
+  "pending_signature",
+  "signed",
+]);
+
+const AccessTypeEnum = z.enum(["private", "public", "restricted", "team"]);
+
 const CreateInputSchema = z.object({
   name: z.string().min(1).max(200),
-  description: z.string().max(2000).optional(),
+  description: z.string().max(2000).describe("Required by the backend; pass an empty string if unused."),
   media: MediaHandleSchema.describe("Returned by chaindoc_media_upload."),
-  status: z.enum(["draft", "published"]).default("draft"),
-  hashtags: z.array(z.string()).max(20).optional(),
-  meta: z.array(MetaPairSchema).optional(),
+  meta: z.array(MetaPairSchema).describe("Required by the backend; pass [] if unused."),
+  hashtags: z
+    .array(z.string())
+    .max(20)
+    .describe("Required by the backend; pass [] if unused."),
+  status: DocumentStatusEnum.describe(
+    "When status='published', the version is queued for blockchain anchoring.",
+  ),
   isForSigning: z.boolean().optional(),
-  accessType: z.enum(["private", "public", "restricted"]).optional(),
+  accessType: AccessTypeEnum.optional(),
   accessEmails: z.array(AccessEmailSchema).optional(),
   accessRoles: z.array(AccessRoleSchema).optional(),
 });
 
 const UpdateInputSchema = z.object({
   documentId: z.string().uuid(),
-  name: z.string().optional(),
-  description: z.string().optional(),
-  media: MediaHandleSchema.optional(),
-  status: z.enum(["draft", "published"]).optional(),
-  hashtags: z.array(z.string()).optional(),
-  meta: z.array(MetaPairSchema).optional(),
+  name: z.string(),
+  description: z.string(),
+  media: MediaHandleSchema,
+  meta: z.array(MetaPairSchema),
+  hashtags: z.array(z.string()),
+  status: DocumentStatusEnum,
   isForSigning: z.boolean().optional(),
 });
 
 const RightsInputSchema = z.object({
   documentId: z.string().uuid(),
-  accessType: z.enum(["private", "public", "restricted"]),
+  accessType: AccessTypeEnum,
   accessEmails: z.array(AccessEmailSchema).optional(),
   accessRoles: z.array(AccessRoleSchema).optional(),
 });
 
-const VerifyInputSchema = z
-  .object({
-    versionHash: z.string().regex(/^0x[0-9a-fA-F]+$/, "expected 0x-prefixed hex").optional(),
-    certificateHash: z
-      .string()
-      .regex(/^0x[0-9a-fA-F]+$/, "expected 0x-prefixed hex")
-      .optional(),
-  })
-  .refine((v) => v.versionHash || v.certificateHash, {
-    message: "provide at least one of versionHash or certificateHash",
-  });
+const VerifyInputSchema = z.object({
+  versionHash: z.string().regex(/^0x[0-9a-fA-F]+$/, "expected 0x-prefixed hex"),
+  certificateHash: z
+    .string()
+    .regex(/^0x[0-9a-fA-F]+$/, "expected 0x-prefixed hex")
+    .optional(),
+});
 
 const VerificationStatusInputSchema = z.object({ versionId: z.string().uuid() });
 
@@ -84,17 +99,18 @@ export const documentsCreate = defineTool({
   name: "chaindoc_documents_create",
   description:
     "Create a blockchain-anchored document from an uploaded media handle. " +
-    "When status='published', the version is queued for blockchain anchoring.",
+    "When status='published', the version is queued for blockchain anchoring. " +
+    "Backend requires `description`, `meta`, `hashtags`, and `status` — pass empty strings/arrays if unused.",
   inputSchema: CreateInputSchema,
   handler: (args, { client }) =>
     client.run("chaindoc_documents_create", (sdk) =>
       sdk.documents.create({
         name: args.name,
-        ...(args.description !== undefined && { description: args.description }),
+        description: args.description,
         media: args.media,
+        meta: args.meta,
+        hashtags: args.hashtags,
         status: args.status,
-        ...(args.hashtags !== undefined && { hashtags: args.hashtags }),
-        ...(args.meta !== undefined && { meta: args.meta }),
         ...(args.isForSigning !== undefined && { isForSigning: args.isForSigning }),
         ...(args.accessType !== undefined && { accessType: args.accessType }),
         ...(args.accessEmails !== undefined && { accessEmails: args.accessEmails }),
@@ -107,11 +123,16 @@ export const documentsUpdate = defineTool({
   name: "chaindoc_documents_update",
   description:
     "Update a document by creating a new version. Previous versions are preserved for audit. " +
-    "Returns 200 with empty body on success.",
+    "All version fields (`name`, `description`, `media`, `meta`, `hashtags`, `status`) are required.",
   inputSchema: UpdateInputSchema,
   handler: (args, { client }) => {
-    const { documentId, ...patch } = args;
-    return client.run("chaindoc_documents_update", (sdk) => sdk.documents.update(documentId, patch));
+    const { documentId, isForSigning, ...patch } = args;
+    return client.run("chaindoc_documents_update", (sdk) =>
+      sdk.documents.update(documentId, {
+        ...patch,
+        ...(isForSigning !== undefined && { isForSigning }),
+      }),
+    );
   },
 });
 
@@ -131,12 +152,12 @@ export const documentsUpdateRights = defineTool({
 export const documentsVerify = defineTool({
   name: "chaindoc_documents_verify",
   description:
-    "Verify a document version's blockchain anchor. Pass versionHash, certificateHash, or both.",
+    "Verify a document version's blockchain anchor. `versionHash` is required; `certificateHash` is optional.",
   inputSchema: VerifyInputSchema,
   handler: (args, { client }) =>
     client.run("chaindoc_documents_verify", (sdk) =>
       sdk.documents.verify({
-        ...(args.versionHash !== undefined && { versionHash: args.versionHash }),
+        versionHash: args.versionHash,
         ...(args.certificateHash !== undefined && { certificateHash: args.certificateHash }),
       }),
     ),

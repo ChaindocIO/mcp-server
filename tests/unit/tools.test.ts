@@ -3,6 +3,7 @@ import type { Logger } from "pino";
 import { documentsCreate, documentsVerify } from "../../src/tools/documents.js";
 import { signaturesCreateRequest } from "../../src/tools/signatures.js";
 import { embeddedCreateSession } from "../../src/tools/embedded.js";
+import { transactionsListByContract } from "../../src/tools/transactions.js";
 import type { ChaindocClient, ChaindocSdkLike } from "../../src/core/client.js";
 
 function fakeLogger(): Logger {
@@ -44,9 +45,16 @@ describe("documentsCreate", () => {
       },
     });
 
+    const media = {
+      type: "document" as const,
+      name: "x.pdf",
+      key: "/temp/x.pdf",
+      url: "https://cdn.example/temp/x.pdf",
+    };
     const args = documentsCreate.inputSchema.parse({
       name: "Service Agreement",
-      media: { type: "document", key: "/temp/x.pdf" },
+      description: "NDA template",
+      media,
       hashtags: ["#nda"],
       status: "published",
       meta: [{ key: "author", value: "John" }],
@@ -56,7 +64,8 @@ describe("documentsCreate", () => {
     expect(create).toHaveBeenCalledWith(
       expect.objectContaining({
         name: "Service Agreement",
-        media: { type: "document", key: "/temp/x.pdf" },
+        description: "NDA template",
+        media,
         hashtags: ["#nda"],
         status: "published",
         meta: [{ key: "author", value: "John" }],
@@ -70,8 +79,15 @@ describe("documentsCreate", () => {
     expect(() => documentsVerify.inputSchema.parse({ versionHash: "not-a-hash" })).toThrow();
   });
 
-  it("requires at least one of versionHash or certificateHash", () => {
+  it("requires versionHash on verify", () => {
     expect(() => documentsVerify.inputSchema.parse({})).toThrow();
+    expect(() => documentsVerify.inputSchema.parse({ certificateHash: "0xabc" })).toThrow();
+  });
+
+  it("accepts versionHash without certificateHash", () => {
+    expect(() =>
+      documentsVerify.inputSchema.parse({ versionHash: "0xabcdef" }),
+    ).not.toThrow();
   });
 });
 
@@ -112,6 +128,54 @@ describe("signaturesCreateRequest", () => {
     expect(calledWith.deadline).toBeInstanceOf(Date);
     expect(calledWith.embeddedFlow).toBe(true);
     expect(calledWith.fields).toHaveLength(1);
+  });
+
+  it("requires deadline", () => {
+    expect(() =>
+      signaturesCreateRequest.inputSchema.parse({
+        versionId: "00000000-0000-0000-0000-000000000001",
+        recipients: [{ email: "alice@example.com" }],
+      }),
+    ).toThrow();
+  });
+
+  it("rejects legacy 'email' signingMethod", () => {
+    expect(() =>
+      signaturesCreateRequest.inputSchema.parse({
+        versionId: "00000000-0000-0000-0000-000000000001",
+        recipients: [{ email: "a@b.com", signingMethod: "email" }],
+        deadline: "2026-12-31T23:59:59Z",
+      }),
+    ).toThrow();
+  });
+
+  it("accepts 'delegated' signingMethod", () => {
+    expect(() =>
+      signaturesCreateRequest.inputSchema.parse({
+        versionId: "00000000-0000-0000-0000-000000000001",
+        recipients: [{ email: "a@b.com", signingMethod: "delegated" }],
+        deadline: "2026-12-31T23:59:59Z",
+      }),
+    ).not.toThrow();
+  });
+});
+
+describe("transactionsListByContract", () => {
+  it("calls listByContract with only contractId — no pagination", async () => {
+    const list = vi.fn().mockResolvedValue({ transactions: [], pagination: {} });
+    const client = fakeClient({
+      transactions: {
+        listByContract: list,
+        get: vi.fn(),
+      },
+    });
+
+    const args = transactionsListByContract.inputSchema.parse({
+      contractId: "00000000-0000-0000-0000-000000000001",
+    });
+    await transactionsListByContract.handler(args, { client, logger: fakeLogger() });
+    expect(list).toHaveBeenCalledTimes(1);
+    expect(list).toHaveBeenCalledWith("00000000-0000-0000-0000-000000000001");
   });
 });
 

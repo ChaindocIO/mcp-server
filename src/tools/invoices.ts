@@ -3,12 +3,12 @@ import { defineTool, type ToolDefinition } from "./types.js";
 
 /**
  * Contract Invoices API
- *   POST   /contracts/:contractId/invoices
- *   GET    /contracts/:contractId/invoices              (paginated)
- *   GET    /contracts/:contractId/invoices/:invoiceUuid
- *   POST   /contracts/:contractId/invoices/:invoiceUuid/send
- *   POST   /contracts/:contractId/invoices/:invoiceUuid/charge
- *   POST   /contracts/:contractId/invoices/:invoiceUuid/mark-paid
+ *   POST   /api/v1/contracts/:contractId/invoices
+ *   GET    /api/v1/contracts/:contractId/invoices              (paginated)
+ *   GET    /api/v1/contracts/:contractId/invoices/:invoiceUuid
+ *   POST   /api/v1/contracts/:contractId/invoices/:invoiceUuid/send
+ *   POST   /api/v1/contracts/:contractId/invoices/:invoiceUuid/charge
+ *   POST   /api/v1/contracts/:contractId/invoices/:invoiceUuid/mark-paid
  */
 
 const InvoiceStatus = z.enum([

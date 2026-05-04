@@ -1,14 +1,76 @@
 # @chaindoc_io/mcp-server
 
-A Model Context Protocol (MCP) server for [Chaindoc](https://chaindoc.io). Lets
-LLM clients (Claude Desktop, Claude Code, Cursor, Cowork, etc.) drive the
-Chaindoc REST API in natural language: blockchain-anchored documents, e-signature
-requests, embedded signing sessions, contract lifecycles with billing, and
-webhook signature verification.
+A Model Context Protocol (MCP) server for **[Chaindoc](https://chaindoc.io)** —
+the blockchain-anchored document and e-signature platform. This package lets
+LLM clients (Claude Desktop, Claude Code, Cursor, Cowork, and other MCP-aware
+agents) drive the [Chaindoc REST API](https://chaindoc.io/docs) in natural
+language: create [tamper-proof documents](https://chaindoc.io/create-document),
+send [e-signature requests](https://chaindoc.io/signing), render
+[contract templates](https://chaindoc.io/contract-templates), run
+[embedded signing sessions](https://chaindoc.io/api-integration), collect
+[contract payments](https://chaindoc.io/payments), and
+[verify any document](https://chaindoc.io/verify-document) on chain.
 
-> **Status:** v0.1.0. Built against the [Chaindoc REST API reference](https://chaindoc.io/docs/api-docs)
-> and the [Chaindoc SDKs guide](https://chaindoc.io/docs/sdks). All endpoints in this
-> README are real. The package depends on `@chaindoc_io/server-sdk@^1.0.0` at runtime.
+> **Status:** v0.1.1. Built against the
+> [Chaindoc REST API and SDK docs](https://chaindoc.io/docs). All endpoints in
+> this README are real. Runtime depends on
+> [`@chaindoc_io/server-sdk@^2.0.1`](https://www.npmjs.com/package/@chaindoc_io/server-sdk),
+> which covers documents, signatures, contracts, invoices, transactions,
+> templates, embedded sessions, and webhook verification.
+
+## Built for
+
+[Chaindoc](https://chaindoc.io) is used across regulated and document-heavy
+industries. The MCP server exposes the same primitives, so agents can automate
+the same flows your dashboard users run today:
+
+- **[Freelancers](https://chaindoc.io/freelancers)** — send NDAs, service
+  agreements, and invoices to clients with a verifiable audit trail and no
+  legal-ops overhead.
+- **[IT companies](https://chaindoc.io/it-companies)** — automate MSAs, SOWs,
+  vendor agreements, and SaaS renewals end-to-end from the agent.
+- **[Real estate](https://chaindoc.io/real-estate)** — listings, lease
+  agreements, purchase contracts, and disclosure forms with cryptographic
+  proof of execution.
+- **[Insurance](https://chaindoc.io/insurance)** — policy issuance, claims
+  documentation, and broker agreements signed and anchored on chain.
+- **[Healthcare](https://chaindoc.io/healthcare)** — patient consents,
+  authorizations, and clinician contracts with tamper-evident versioning.
+
+Working in another vertical? The API surface is generic — the industry pages
+just showcase the templates and flows Chaindoc ships out of the box.
+
+## What you can build
+
+Each capability below maps to a tool group in this server. Click through for
+the product page on [chaindoc.io](https://chaindoc.io).
+
+- **[Blockchain document creation](https://chaindoc.io/create-document)** —
+  upload a PDF, DOC, image, or video and anchor a tamper-evident hash on
+  chain. Returns a verifiable `versionHash`.
+- **[E-signature requests](https://chaindoc.io/signing)** — single- or
+  multi-party signing flows; recipients sign in parallel with delegated-API or
+  embedded-iframe modes.
+- **[Contract templates](https://chaindoc.io/contract-templates)** — render
+  reusable templates with variables and ship them directly into a signing or
+  contract flow.
+- **[Payments and invoicing](https://chaindoc.io/payments)** — attach
+  recurring or one-off payment terms to contracts and charge through Stripe
+  Connect.
+- **[Document verification](https://chaindoc.io/verify-document)** — verify
+  any document version's blockchain anchor by hash, or run a
+  [PDF certificate verification](https://chaindoc.io/pdf-verify) end-to-end.
+- **[Team management](https://chaindoc.io/team-management)** — share
+  documents, set per-role rights, and audit access.
+- **[API integration](https://chaindoc.io/api-integration)** — full REST
+  surface, webhook delivery with signed canonical envelopes, and per-tenant
+  API keys.
+
+Ready to ship? See [plans and pricing](https://chaindoc.io/pricing) (API
+access ships with the Business plan), explore the
+[partnership program](https://chaindoc.io/partnership), or
+[create an account](https://app.chaindoc.io/?lang=en) and grab an `sk_*` key
+in **Settings → API Access**.
 
 ## Install
 
@@ -178,7 +240,7 @@ server exposes is a **verifier**:
 
 | Tool | Notes |
 |---|---|
-| `chaindoc_webhooks_verify` | Wraps `Chaindoc.webhooks.verify()` — HMAC-SHA256 + 5-minute replay window. Returns `{ valid, envelope?, reason? }`. |
+| `chaindoc_webhooks_verify` | Wraps `Chaindoc.webhooks.verify()` — HMAC-SHA256 + 5-minute replay window. Returns `{ valid, envelope? }` where `envelope` is the canonical `{ id, type, createdAt, data }` payload. Required headers: `X-Chaindoc-Signature` (`v1=<hex>`), `X-Chaindoc-Timestamp`, `X-Chaindoc-Event`, `X-Chaindoc-Delivery-Id`. |
 
 ## Resources
 

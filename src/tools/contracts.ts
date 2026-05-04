@@ -3,23 +3,29 @@ import { defineTool, type ToolDefinition } from "./types.js";
 
 /**
  * Contracts API
- *   POST   /contracts
- *   GET    /contracts                            (paginated)
- *   GET    /contracts/:contractId
- *   GET    /contracts/:contractId/status
- *   GET    /contracts/:contractId/activities
- *   POST   /contracts/:contractId/payment-setup
- *   POST   /contracts/:contractId/send
- *   POST   /contracts/:contractId/cancel
- *   POST   /contracts/:contractId/terminate
+ *   POST   /api/v1/contracts
+ *   GET    /api/v1/contracts                              (paginated)
+ *   GET    /api/v1/contracts/:contractId
+ *   GET    /api/v1/contracts/:contractId/status
+ *   GET    /api/v1/contracts/:contractId/activities
+ *   POST   /api/v1/contracts/:contractId/payment-setup
+ *   POST   /api/v1/contracts/:contractId/send
+ *   POST   /api/v1/contracts/:contractId/cancel
+ *   POST   /api/v1/contracts/:contractId/terminate
  */
 
+const PreferredPaymentMethodEnum = z.enum(["card", "bank_transfer"]);
+
 const PaymentTermSchema = z.object({
-  type: z.enum(["one_time", "recurring", "deposit"]),
+  type: z.enum(["deposit", "recurring", "one_time"]),
   name: z.string(),
+  description: z.string().optional(),
   amount: z.string().regex(/^\d+(\.\d{1,2})?$/, "decimal string e.g. '5000.00'"),
   frequency: z.enum(["weekly", "biweekly", "monthly", "quarterly", "yearly"]).optional(),
   dayOfPeriod: z.number().int().min(1).max(28).optional(),
+  startDate: z.string().datetime({ offset: true }).optional(),
+  endDate: z.string().datetime({ offset: true }).optional(),
+  totalPayments: z.number().int().positive().optional(),
   dueDate: z.string().datetime({ offset: true }).optional(),
   autoCharge: z.boolean().optional(),
 });
@@ -41,9 +47,13 @@ const ContragentSchema = z.object({
     .optional(),
 });
 
+/**
+ * Contract signing policy. The contragent slot is always 'embedded' — only the
+ * business slot can be 'delegated' (signed via API by the key owner).
+ */
 const SigningPolicySchema = z.object({
-  business: z.enum(["email", "embedded"]).optional(),
-  contragent: z.enum(["email", "embedded"]).optional(),
+  business: z.enum(["embedded", "delegated"]).optional(),
+  contragent: z.literal("embedded").optional(),
 });
 
 const CreateInputSchema = z.object({
@@ -59,7 +69,7 @@ const CreateInputSchema = z.object({
   noticePeriodDays: z.number().int().nonnegative().optional(),
   paymentTerms: z.array(PaymentTermSchema).optional(),
   paymentMethodRequired: z.boolean().optional(),
-  preferredPaymentMethodType: z.string().optional(),
+  preferredPaymentMethodType: PreferredPaymentMethodEnum.optional(),
   signingPolicy: SigningPolicySchema.optional(),
 });
 
@@ -92,12 +102,12 @@ const ActivitiesInputSchema = z.object({
 
 const PaymentSetupInputSchema = z.object({
   contractId: z.string().uuid(),
-  startDate: z.string().datetime({ offset: true }).optional(),
+  startDate: z.string().datetime({ offset: true }).describe("Required by the backend; min 24h from now."),
   endDate: z.string().datetime({ offset: true }).optional(),
   currencyCode: z.string().length(3).optional(),
   paymentMethodRequired: z.boolean().optional(),
-  preferredPaymentMethodType: z.string().optional(),
-  paymentTerms: z.array(PaymentTermSchema).optional(),
+  preferredPaymentMethodType: PreferredPaymentMethodEnum.optional(),
+  paymentTerms: z.array(PaymentTermSchema),
 });
 
 const SendInputSchema = z.object({

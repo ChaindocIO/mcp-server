@@ -3,8 +3,8 @@ import { defineTool, type ToolDefinition } from "./types.js";
 
 /**
  * Transactions API
- *   GET /contracts/:contractId/transactions
- *   GET /transactions/:transactionUuid
+ *   GET /api/v1/contracts/:contractId/transactions
+ *   GET /api/v1/transactions/:transactionUuid
  *
  * Read-only inspection of payment transactions. Statuses:
  * INITIALISED, PENDING, SUCCESS, FAILED, CANCELLED.
@@ -12,8 +12,6 @@ import { defineTool, type ToolDefinition } from "./types.js";
 
 const ListInputSchema = z.object({
   contractId: z.string().uuid(),
-  pageNumber: z.number().int().positive().default(1),
-  pageSize: z.number().int().positive().max(100).default(10),
 });
 
 const GetInputSchema = z.object({
@@ -22,14 +20,13 @@ const GetInputSchema = z.object({
 
 export const transactionsListByContract = defineTool({
   name: "chaindoc_transactions_list_by_contract",
-  description: "List all transactions for a contract across its invoices.",
+  description:
+    "List all transactions for a contract across its invoices. " +
+    "The endpoint is non-paginated — all transactions are returned in a single response.",
   inputSchema: ListInputSchema,
   handler: (args, { client }) =>
     client.run("chaindoc_transactions_list_by_contract", (sdk) =>
-      sdk.transactions.listByContract(args.contractId, {
-        pageNumber: args.pageNumber,
-        pageSize: args.pageSize,
-      }),
+      sdk.transactions.listByContract(args.contractId),
     ),
 });
 

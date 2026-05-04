@@ -14,13 +14,18 @@ import { defineTool, type ToolDefinition } from "./types.js";
  * `Chaindoc.webhooks.verify()` helper. That's exactly the high-value
  * thing an LLM agent can do safely on the user's behalf when they paste
  * in a webhook delivery they want to inspect or debug.
+ *
+ * Canonical envelope (after verification):
+ *   { id, type, createdAt, data }
+ * Required headers:
+ *   X-Chaindoc-Event, X-Chaindoc-Signature, X-Chaindoc-Delivery-Id, X-Chaindoc-Timestamp
  */
 
 const VerifyInputSchema = z.object({
   rawBody: z.string().describe("The raw, unparsed JSON body of the incoming webhook request."),
   signature: z
     .string()
-    .describe("Value of the X-Chaindoc-Signature header, e.g. 'v1=<hex>'."),
+    .describe("Value of the X-Chaindoc-Signature header, format 'v1=<hex>' (HMAC-SHA256 of `${timestamp}.${rawBody}`)."),
   timestamp: z.string().describe("Value of the X-Chaindoc-Timestamp header (ISO 8601 UTC)."),
   secret: z
     .string()
@@ -34,7 +39,7 @@ export const webhooksVerify = defineTool({
   name: "chaindoc_webhooks_verify",
   description:
     "Verify the HMAC-SHA256 signature of a Chaindoc webhook delivery. Returns " +
-    "{ valid, envelope?, reason? }. The 5-minute replay window is enforced. " +
+    "{ valid: boolean, envelope?: { id, type, createdAt, data } }. The 5-minute replay window is enforced. " +
     "Webhook configuration itself (URL/secret/enabled) is set in the Chaindoc dashboard, " +
     "not via this API.",
   inputSchema: VerifyInputSchema,

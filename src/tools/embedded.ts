@@ -2,11 +2,14 @@ import { z } from "zod";
 import { defineTool, type ToolDefinition } from "./types.js";
 
 /**
- * Embedded sessions API — POST /embedded/sessions.
+ * Embedded sessions API — POST /api/v1/embedded/sessions.
  *
  * Sessions live for 10 minutes. The signer receives an OTP via email to
  * exercise the iframe. The frontend Embed SDK consumes the returned
  * sessionId.
+ *
+ * For contract signing, pass `metadata.contractId` and the backend resolves
+ * `documentId` and `signatureRequestId` automatically.
  */
 
 const CreateSessionSchema = z

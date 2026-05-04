@@ -3,20 +3,23 @@ import { defineTool, type ToolDefinition } from "./types.js";
 
 /**
  * Signatures API
- *   POST   /signatures/requests
- *   GET    /signatures/requests/:requestId/status
- *   POST   /signatures/sign
- *   GET    /signatures?pageNumber&pageSize
- *   GET    /signatures/requests?pageNumber&pageSize
+ *   POST   /api/v1/signatures/requests
+ *   GET    /api/v1/signatures/requests/:requestId/status
+ *   POST   /api/v1/signatures/sign
+ *   GET    /api/v1/signatures?pageNumber&pageSize        (saved signature images)
+ *   GET    /api/v1/signatures/requests?pageNumber&pageSize
  */
+
+const SigningMethodEnum = z
+  .enum(["embedded", "delegated"])
+  .describe(
+    "'embedded' opens the signer in an iframe via chaindoc_embedded_create_session; " +
+      "'delegated' uses chaindoc_signatures_sign on behalf of the API key owner.",
+  );
 
 const RecipientSchema = z.object({
   email: z.string().email(),
-  signingMethod: z.enum(["email", "embedded"]).optional(),
-  shareToken: z
-    .string()
-    .optional()
-    .describe("Optional Sumsub KYC share token to skip KYC for this signer."),
+  signingMethod: SigningMethodEnum.optional(),
 });
 
 const PlacedFieldSchema = z.object({
@@ -38,8 +41,7 @@ const CreateRequestSchema = z.object({
   deadline: z
     .string()
     .datetime({ offset: true })
-    .optional()
-    .describe("ISO-8601 datetime."),
+    .describe("ISO-8601 datetime. Required by the backend."),
   embeddedFlow: z.boolean().default(false),
   isKycRequired: z.boolean().default(false),
   message: z.string().max(2000).optional(),
@@ -73,17 +75,18 @@ export const signaturesCreateRequest = defineTool({
   description:
     "Create a signature request for a document version. " +
     "All recipients sign in parallel — Chaindoc does not support sequential or conditional ordering. " +
-    "Set embeddedFlow=true and use chaindoc_embedded_create_session per recipient for in-app signing.",
+    "`deadline` is required. Set signingMethod='embedded' on a recipient and use chaindoc_embedded_create_session for in-app signing; " +
+    "use 'delegated' when the API key owner will call chaindoc_signatures_sign on their behalf.",
   inputSchema: CreateRequestSchema,
   handler: (args, { client }) =>
     client.run("chaindoc_signatures_create_request", (sdk) => {
       const payload: Parameters<typeof sdk.signatures.createRequest>[0] = {
         versionId: args.versionId,
         recipients: args.recipients,
+        deadline: new Date(args.deadline),
         embeddedFlow: args.embeddedFlow,
         isKycRequired: args.isKycRequired,
       };
-      if (args.deadline !== undefined) payload.deadline = new Date(args.deadline);
       if (args.message !== undefined) payload.message = args.message;
       if (args.fields !== undefined) payload.fields = args.fields;
       return sdk.signatures.createRequest(payload);
@@ -120,7 +123,9 @@ export const signaturesSign = defineTool({
 
 export const signaturesGetMyRequests = defineTool({
   name: "chaindoc_signatures_get_my_requests",
-  description: "Paginated list of signature requests for the authenticated key owner.",
+  description:
+    "Paginated list of signature requests for the authenticated key owner. " +
+    "Response includes totals: total, totalPending, totalCompleted, totalExpired.",
   inputSchema: PaginationSchema,
   handler: (args, { client }) =>
     client.run("chaindoc_signatures_get_my_requests", (sdk) =>
@@ -130,7 +135,9 @@ export const signaturesGetMyRequests = defineTool({
 
 export const signaturesGetSignatures = defineTool({
   name: "chaindoc_signatures_get_signatures",
-  description: "Paginated list of signatures created by the authenticated key owner.",
+  description:
+    "Paginated list of saved signature images on the authenticated user's account " +
+    "(items[].hash, imageMedia, createdAt). For the list of signature requests, use chaindoc_signatures_get_my_requests.",
   inputSchema: PaginationSchema,
   handler: (args, { client }) =>
     client.run("chaindoc_signatures_get_signatures", (sdk) =>
