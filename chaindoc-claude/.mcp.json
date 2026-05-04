@@ -1,6 +1,8 @@
 {
-  "chaindoc": {
-    "command": "npx",
-    "args": ["-y", "@chaindoc_io/mcp-server"]
+  "mcpServers": {
+    "chaindoc": {
+      "command": "npx",
+      "args": ["-y", "@chaindoc_io/mcp-server@latest"]
+    }
   }
 }

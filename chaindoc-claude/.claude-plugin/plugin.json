@@ -1,8 +1,24 @@
 {
   "name": "chaindoc",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "description": "Control signatures, invoices and contracts. Create and analyze documents in Chaindoc. Send sign requests and contracts.",
   "author": {
-    "name": "Chaindoc"
-  }
+    "name": "Chaindoc",
+    "url": "https://chaindoc.io"
+  },
+  "homepage": "https://chaindoc.io",
+  "repository": "https://github.com/ChaindocIO/mcp-server",
+  "license": "MIT",
+  "keywords": [
+    "chaindoc",
+    "mcp",
+    "esignature",
+    "blockchain",
+    "documents",
+    "contracts",
+    "invoices",
+    "templates",
+    "embedded-signing",
+    "webhooks"
+  ]
 }

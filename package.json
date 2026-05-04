@@ -3,6 +3,15 @@
   "version": "0.1.2",
   "description": "Model Context Protocol server for Chaindoc — blockchain-verified document management, e-signatures, and embedded signing.",
   "license": "MIT",
+  "homepage": "https://chaindoc.io",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ChaindocIO/mcp-server.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ChaindocIO/mcp-server/issues"
+  },
+  "author": "Chaindoc <dev@chaindoc.io> (https://chaindoc.io)",
   "type": "module",
   "engines": {
     "node": ">=18.18"
