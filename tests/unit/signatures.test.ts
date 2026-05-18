@@ -49,6 +49,8 @@ import {
   signaturesRemind,
   signaturesCreateSignature,
   signaturesValidatePdfSignatures,
+  signaturesDownloadCertificate,
+  signaturesDownloadSignedDocument,
 } from "../../src/tools/signatures.js";
 
 const RID = "00000000-0000-0000-0000-000000000001";
@@ -110,5 +112,52 @@ describe("signatures lifecycle", () => {
     expect(() =>
       signaturesCreateSignature.inputSchema.parse({ media: { wrong: true } }),
     ).toThrow();
+  });
+});
+
+describe("signatures binary downloads", () => {
+  it("download_certificate routes through adapter", async () => {
+    const downloadCertificate = vi.fn().mockResolvedValue({
+      data: new TextEncoder().encode("cert").buffer,
+      contentType: "application/pdf",
+    });
+    const client = fakeClient({
+      signatures: {
+        createRequest: vi.fn(), getRequestStatus: vi.fn(), sign: vi.fn(),
+        getMyRequests: vi.fn(), getSignatures: vi.fn(),
+        editRequest: vi.fn(), cancel: vi.fn(), remind: vi.fn(),
+        createSignature: vi.fn(), validatePdfSignatures: vi.fn(),
+        downloadCertificate, downloadSignedDocument: vi.fn(),
+      } as never,
+    });
+    const args = signaturesDownloadCertificate.inputSchema.parse({ versionId: RID });
+    const r = await signaturesDownloadCertificate.handler(args, {
+      client, logger: fakeLogger(), downloads: fakeDownloads({ mode: "inline" }),
+    });
+    expect(downloadCertificate).toHaveBeenCalledWith(RID);
+    expect((r as { kind: string }).kind).toBe("inline");
+    expect((r as { contentType: string }).contentType).toBe("application/pdf");
+  });
+
+  it("download_signed_document routes through adapter", async () => {
+    const downloadSignedDocument = vi.fn().mockResolvedValue({
+      data: new TextEncoder().encode("signed").buffer,
+      contentType: "application/pdf",
+    });
+    const client = fakeClient({
+      signatures: {
+        createRequest: vi.fn(), getRequestStatus: vi.fn(), sign: vi.fn(),
+        getMyRequests: vi.fn(), getSignatures: vi.fn(),
+        editRequest: vi.fn(), cancel: vi.fn(), remind: vi.fn(),
+        createSignature: vi.fn(), validatePdfSignatures: vi.fn(),
+        downloadCertificate: vi.fn(), downloadSignedDocument,
+      } as never,
+    });
+    const args = signaturesDownloadSignedDocument.inputSchema.parse({ versionId: RID });
+    const r = await signaturesDownloadSignedDocument.handler(args, {
+      client, logger: fakeLogger(), downloads: fakeDownloads({ mode: "inline" }),
+    });
+    expect(downloadSignedDocument).toHaveBeenCalledWith(RID);
+    expect((r as { kind: string }).kind).toBe("inline");
   });
 });

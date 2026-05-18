@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { defineTool, type ToolDefinition } from "./types.js";
+import { deliverDownload } from "../core/downloads.js";
 
 /**
  * Signatures API
@@ -272,6 +273,34 @@ export const signaturesValidatePdfSignatures = defineTool({
   },
 });
 
+export const signaturesDownloadCertificate = defineTool({
+  name: "chaindoc_signatures_download_certificate",
+  description:
+    "Download the audit-trail certificate PDF for a fully-signed document version. " +
+    "Returns 400 if the version has no certificate (not yet fully signed).",
+  inputSchema: z.object({ versionId: z.string().uuid() }),
+  handler: (args, { client, downloads }) =>
+    client.run("chaindoc_signatures_download_certificate", async (sdk) =>
+      deliverDownload(downloads, await sdk.signatures.downloadCertificate(args.versionId), {
+        tool: "chaindoc_signatures_download_certificate",
+      }),
+    ),
+});
+
+export const signaturesDownloadSignedDocument = defineTool({
+  name: "chaindoc_signatures_download_signed_document",
+  description:
+    "Download the PAdES-signed PDF for a fully-signed document version. " +
+    "Returns 400 if the version is not yet fully signed.",
+  inputSchema: z.object({ versionId: z.string().uuid() }),
+  handler: (args, { client, downloads }) =>
+    client.run("chaindoc_signatures_download_signed_document", async (sdk) =>
+      deliverDownload(downloads, await sdk.signatures.downloadSignedDocument(args.versionId), {
+        tool: "chaindoc_signatures_download_signed_document",
+      }),
+    ),
+});
+
 export const signaturesTools: ToolDefinition<unknown>[] = [
   signaturesCreateRequest as ToolDefinition<unknown>,
   signaturesGetRequestStatus as ToolDefinition<unknown>,
@@ -283,4 +312,6 @@ export const signaturesTools: ToolDefinition<unknown>[] = [
   signaturesRemind as ToolDefinition<unknown>,
   signaturesCreateSignature as ToolDefinition<unknown>,
   signaturesValidatePdfSignatures as ToolDefinition<unknown>,
+  signaturesDownloadCertificate as ToolDefinition<unknown>,
+  signaturesDownloadSignedDocument as ToolDefinition<unknown>,
 ];
