@@ -223,6 +223,115 @@ export const contractsTerminate = defineTool({
     ),
 });
 
+const CreateEmptySchema = z.object({
+  title: z.string().min(1).max(200),
+  description: z.string().max(2000).optional(),
+  contragentEmail: z.string().email(),
+  contragentName: z.string().optional(),
+  currencyCode: z.string().length(3).optional(),
+});
+
+const CreateMinimalSchema = z.object({
+  documentId: z.string().uuid(),
+  title: z.string().min(1).max(200),
+  description: z.string().max(2000).optional(),
+  contragentEmail: z.string().email(),
+  contragentName: z.string().optional(),
+  skipPaymentSetup: z.boolean().optional(),
+});
+
+const ImportSchema = z.object({
+  documentId: z.string().uuid(),
+  title: z.string().min(1).max(200),
+  description: z.string().max(2000).optional(),
+  contragentEmail: z.string().email(),
+  contragentName: z.string().optional(),
+  currencyCode: z.string().length(3).optional(),
+  startDate: z.string().datetime({ offset: true }).optional(),
+  endDate: z.string().datetime({ offset: true }).optional(),
+});
+
+const UpdateSchema = z.object({
+  contractId: z.string().uuid(),
+  title: z.string().min(1).max(200).optional(),
+  description: z.string().max(2000).optional(),
+  startDate: z.string().datetime({ offset: true }).optional(),
+  endDate: z.string().datetime({ offset: true }).optional(),
+  autoRenew: z.boolean().optional(),
+  terminationType: z.enum(["mutual_approval", "one_side"]).optional(),
+  noticePeriodDays: z.number().int().nonnegative().optional(),
+});
+
+const AttachDocumentSchema = z.object({
+  contractId: z.string().uuid(),
+  documentId: z.string().uuid(),
+});
+
+export const contractsCreateEmpty = defineTool({
+  name: "chaindoc_contracts_create_empty",
+  description:
+    "Create an invoice-only contract. Activates immediately (status='active', origin='invoice_only'); " +
+    "no document attached, no signing flow. Use for manual invoicing relationships. " +
+    "Preconditions: workspace must have Stripe Connect ready.",
+  inputSchema: CreateEmptySchema,
+  handler: (args, { client }) =>
+    client.run("chaindoc_contracts_create_empty", (sdk) => sdk.contracts.createEmpty(args)),
+});
+
+export const contractsCreateMinimal = defineTool({
+  name: "chaindoc_contracts_create_minimal",
+  description:
+    "Create a DRAFT contract from a document + contragent email + title. Add payment setup / send later. " +
+    "Preconditions: workspace must have Stripe Connect ready.",
+  inputSchema: CreateMinimalSchema,
+  handler: (args, { client }) =>
+    client.run("chaindoc_contracts_create_minimal", (sdk) => sdk.contracts.createMinimal(args)),
+});
+
+export const contractsImport = defineTool({
+  name: "chaindoc_contracts_import",
+  description:
+    "Register an off-platform-signed contract. Activates immediately, skips the in-app signing flow. " +
+    "Preconditions: workspace must have Stripe Connect ready.",
+  inputSchema: ImportSchema,
+  handler: (args, { client }) =>
+    client.run("chaindoc_contracts_import", (sdk) => sdk.contracts.import(args)),
+});
+
+export const contractsUpdate = defineTool({
+  name: "chaindoc_contracts_update",
+  description:
+    "Partial update of a DRAFT contract. Only provided fields apply. " +
+    "Preconditions: contract must be in DRAFT. State mismatches return code='wrong_state'.",
+  inputSchema: UpdateSchema,
+  handler: (args, { client }) => {
+    const { contractId, ...patch } = args;
+    return client.run("chaindoc_contracts_update", (sdk) => sdk.contracts.update(contractId, patch));
+  },
+});
+
+export const contractsDelete = defineTool({
+  name: "chaindoc_contracts_delete",
+  description:
+    "Delete a DRAFT contract. Preconditions: must be in DRAFT (returns 403/code='forbidden' or 'wrong_state' otherwise). " +
+    "Decrements workspace usage atomically.",
+  inputSchema: z.object({ contractId: z.string().uuid() }),
+  handler: (args, { client }) =>
+    client.run("chaindoc_contracts_delete", (sdk) => sdk.contracts.delete(args.contractId)),
+});
+
+export const contractsAttachDocument = defineTool({
+  name: "chaindoc_contracts_attach_document",
+  description:
+    "Attach a document to a doc-less DRAFT contract. The document must be owned by the key owner (404 if foreign). " +
+    "Preconditions: contract must be in DRAFT and not already have a document attached.",
+  inputSchema: AttachDocumentSchema,
+  handler: (args, { client }) =>
+    client.run("chaindoc_contracts_attach_document", (sdk) =>
+      sdk.contracts.attachDocument(args.contractId, { documentId: args.documentId }),
+    ),
+});
+
 export const contractsTools: ToolDefinition<unknown>[] = [
   contractsCreate as ToolDefinition<unknown>,
   contractsList as ToolDefinition<unknown>,
@@ -233,4 +342,10 @@ export const contractsTools: ToolDefinition<unknown>[] = [
   contractsSend as ToolDefinition<unknown>,
   contractsCancel as ToolDefinition<unknown>,
   contractsTerminate as ToolDefinition<unknown>,
+  contractsCreateEmpty as ToolDefinition<unknown>,
+  contractsCreateMinimal as ToolDefinition<unknown>,
+  contractsImport as ToolDefinition<unknown>,
+  contractsUpdate as ToolDefinition<unknown>,
+  contractsDelete as ToolDefinition<unknown>,
+  contractsAttachDocument as ToolDefinition<unknown>,
 ];
