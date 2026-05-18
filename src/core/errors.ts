@@ -70,12 +70,13 @@ export function toChaindocMcpError(err: unknown): ChaindocMcpError {
     const e = err as SdkErrorShape;
     const status = e.status ?? e.statusCode;
     if (typeof status === "number") {
-      // Honor an explicit `code` from the source (e.g. download adapter's `payload_too_large`).
+      // Honor an explicit `code` from the source when the generic status map has no entry.
+      // This lets a thrower attach a domain-specific code on an unmapped status (e.g. 402, 451)
+      // without it being silently replaced with `internal_error`. The mapped 4xx statuses always
+      // take precedence over the explicit code so they remain a stable baseline.
       const baseCode =
-        (typeof e.code === "string" && STATUS_TO_CODE[status] !== undefined
-          ? (e.code as ChaindocErrorCode)
-          : undefined) ??
         STATUS_TO_CODE[status] ??
+        (typeof e.code === "string" ? (e.code as ChaindocErrorCode) : undefined) ??
         (status >= 500 ? "upstream_error" : "internal_error");
       const out: ChaindocMcpError = {
         code: baseCode,
