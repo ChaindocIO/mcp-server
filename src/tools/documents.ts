@@ -177,10 +177,94 @@ export const documentsGetVerificationStatus = defineTool({
     ),
 });
 
+// SDK: DocumentSearchStatus = "draft" | "published" | "published_not_signed"
+const DocumentSearchStatusEnum = z.enum(["draft", "published", "published_not_signed"]);
+
+const DocIdSchema = z.object({ documentId: z.string().uuid() });
+
+const DocVersionsSchema = z.object({
+  documentId: z.string().uuid(),
+  pageNumber: z.number().int().positive().default(1),
+  pageSize: z.number().int().positive().max(100).default(20),
+});
+
+const SearchDocsSchema = z.object({
+  search: z.string().optional(),
+  status: DocumentSearchStatusEnum.optional(),
+  pageNumber: z.number().int().positive().default(1),
+  pageSize: z.number().int().positive().max(100).default(20),
+});
+
+const ListSharedSchema = z.object({
+  search: z.string().optional(),
+  status: DocumentSearchStatusEnum.optional(),
+  pageNumber: z.number().int().positive().default(1),
+  pageSize: z.number().int().positive().max(100).default(20),
+});
+
+export const documentsGet = defineTool({
+  name: "chaindoc_documents_get",
+  description:
+    "Fetch a document's current-version metadata (accessType, txtId, owner, etc.). " +
+    "Preconditions: key owner must have read access (owner or shared).",
+  inputSchema: DocIdSchema,
+  handler: (args, { client }) =>
+    client.run("chaindoc_documents_get", (sdk) => sdk.documents.get(args.documentId)),
+});
+
+export const documentsGetVersions = defineTool({
+  name: "chaindoc_documents_get_versions",
+  description: "Paginated version history for a document.",
+  inputSchema: DocVersionsSchema,
+  handler: (args, { client }) =>
+    client.run("chaindoc_documents_get_versions", (sdk) =>
+      sdk.documents.getVersions(args.documentId, { pageNumber: args.pageNumber, pageSize: args.pageSize }),
+    ),
+});
+
+export const documentsSearch = defineTool({
+  name: "chaindoc_documents_search",
+  description:
+    "Search documents the key owner can access by optional free-text `search` and optional `status` filter.",
+  inputSchema: SearchDocsSchema,
+  handler: (args, { client }) =>
+    client.run("chaindoc_documents_search", (sdk) => sdk.documents.search(args)),
+});
+
+export const documentsListShared = defineTool({
+  name: "chaindoc_documents_list_shared",
+  description: "List documents explicitly shared *with* the key owner (not owned by them).",
+  inputSchema: ListSharedSchema,
+  handler: (args, { client }) =>
+    client.run("chaindoc_documents_list_shared", (sdk) => sdk.documents.listShared(args)),
+});
+
+export const documentsGetActivity = defineTool({
+  name: "chaindoc_documents_get_activity",
+  description: "Activity log (views, downloads, verification checks) for the document's current version.",
+  inputSchema: DocIdSchema,
+  handler: (args, { client }) =>
+    client.run("chaindoc_documents_get_activity", (sdk) => sdk.documents.getActivity(args.documentId)),
+});
+
+export const documentsGetDownloads = defineTool({
+  name: "chaindoc_documents_get_downloads",
+  description: "Download log for the document.",
+  inputSchema: DocIdSchema,
+  handler: (args, { client }) =>
+    client.run("chaindoc_documents_get_downloads", (sdk) => sdk.documents.getDownloads(args.documentId)),
+});
+
 export const documentsTools: ToolDefinition<unknown>[] = [
   documentsCreate as ToolDefinition<unknown>,
   documentsUpdate as ToolDefinition<unknown>,
   documentsUpdateRights as ToolDefinition<unknown>,
   documentsVerify as ToolDefinition<unknown>,
   documentsGetVerificationStatus as ToolDefinition<unknown>,
+  documentsGet as ToolDefinition<unknown>,
+  documentsGetVersions as ToolDefinition<unknown>,
+  documentsSearch as ToolDefinition<unknown>,
+  documentsListShared as ToolDefinition<unknown>,
+  documentsGetActivity as ToolDefinition<unknown>,
+  documentsGetDownloads as ToolDefinition<unknown>,
 ];
