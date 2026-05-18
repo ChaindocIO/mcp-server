@@ -255,6 +255,61 @@ export const documentsGetDownloads = defineTool({
     client.run("chaindoc_documents_get_downloads", (sdk) => sdk.documents.getDownloads(args.documentId)),
 });
 
+// ---- Comments + public link ----
+
+const CommentAddSchema = z.object({
+  documentId: z.string().uuid(),
+  content: z.string().min(1).max(4000),
+});
+
+const CommentsListSchema = z.object({
+  documentId: z.string().uuid(),
+  pageNumber: z.number().int().positive().default(1),
+  pageSize: z.number().int().positive().max(100).default(20),
+});
+
+const SendPublicLinkSchema = z.object({
+  documentId: z.string().uuid(),
+  email: z.string().email(),
+  text: z.string().max(2000).optional(),
+});
+
+export const documentsCommentsAdd = defineTool({
+  name: "chaindoc_documents_comments_add",
+  description:
+    "Add a top-level comment to a document. Replies cannot be created via the public API.",
+  inputSchema: CommentAddSchema,
+  handler: (args, { client }) =>
+    client.run("chaindoc_documents_comments_add", (sdk) =>
+      sdk.documents.comments.add(args.documentId, { content: args.content }),
+    ),
+});
+
+export const documentsCommentsList = defineTool({
+  name: "chaindoc_documents_comments_list",
+  description: "List top-level comments on a document (each with nested replies).",
+  inputSchema: CommentsListSchema,
+  handler: (args, { client }) =>
+    client.run("chaindoc_documents_comments_list", (sdk) =>
+      sdk.documents.comments.list(args.documentId, { pageNumber: args.pageNumber, pageSize: args.pageSize }),
+    ),
+});
+
+export const documentsSendPublicLink = defineTool({
+  name: "chaindoc_documents_send_public_link",
+  description:
+    "Email a public link to a recipient. Preconditions: document.accessType must be 'public'. " +
+    "Otherwise returns code='document_not_public' with a hint pointing at chaindoc_documents_update_rights.",
+  inputSchema: SendPublicLinkSchema,
+  handler: (args, { client }) =>
+    client.run("chaindoc_documents_send_public_link", (sdk) =>
+      sdk.documents.sendPublicLink(args.documentId, {
+        email: args.email,
+        ...(args.text !== undefined && { text: args.text }),
+      }),
+    ),
+});
+
 export const documentsTools: ToolDefinition<unknown>[] = [
   documentsCreate as ToolDefinition<unknown>,
   documentsUpdate as ToolDefinition<unknown>,
@@ -267,4 +322,7 @@ export const documentsTools: ToolDefinition<unknown>[] = [
   documentsListShared as ToolDefinition<unknown>,
   documentsGetActivity as ToolDefinition<unknown>,
   documentsGetDownloads as ToolDefinition<unknown>,
+  documentsCommentsAdd as ToolDefinition<unknown>,
+  documentsCommentsList as ToolDefinition<unknown>,
+  documentsSendPublicLink as ToolDefinition<unknown>,
 ];
