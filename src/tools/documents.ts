@@ -47,6 +47,8 @@ const DocumentStatusEnum = z.enum([
   "signed",
 ]);
 
+const DocumentStatusForCreateEnum = z.enum(["draft", "published"]);
+
 const AccessTypeEnum = z.enum(["private", "public", "restricted", "team"]);
 
 const CreateInputSchema = z.object({
@@ -58,7 +60,7 @@ const CreateInputSchema = z.object({
     .array(z.string())
     .max(20)
     .describe("Required by the backend; pass [] if unused."),
-  status: DocumentStatusEnum.describe(
+  status: DocumentStatusForCreateEnum.describe(
     "When status='published', the version is queued for blockchain anchoring.",
   ),
   isForSigning: z.boolean().optional(),
@@ -74,7 +76,7 @@ const UpdateInputSchema = z.object({
   media: MediaHandleSchema,
   meta: z.array(MetaPairSchema),
   hashtags: z.array(z.string()),
-  status: DocumentStatusEnum,
+  status: DocumentStatusForCreateEnum,
   isForSigning: z.boolean().optional(),
 });
 
