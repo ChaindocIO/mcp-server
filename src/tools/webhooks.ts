@@ -49,6 +49,23 @@ export const webhooksVerify = defineTool({
   },
 });
 
+const ParseSchema = z.object({
+  rawBody: z.string().describe("The raw, unparsed JSON body of an inbound webhook."),
+});
+
+export const webhooksParse = defineTool({
+  name: "chaindoc_webhooks_parse",
+  description:
+    "Parse a Chaindoc webhook body WITHOUT verifying the signature. Only safe for trusted-transport contexts " +
+    "(internal queue replays, log inspection). For any cross-network delivery, use chaindoc_webhooks_verify instead.",
+  inputSchema: ParseSchema,
+  handler: async (args, { client }) => {
+    const staticApi = await client.staticApi();
+    return staticApi.webhooks.parse(args.rawBody);
+  },
+});
+
 export const webhooksTools: ToolDefinition<unknown>[] = [
   webhooksVerify as ToolDefinition<unknown>,
+  webhooksParse as ToolDefinition<unknown>,
 ];
