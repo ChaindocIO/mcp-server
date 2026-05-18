@@ -42,3 +42,73 @@ describe("signatures_sign description carries the legacy warning", () => {
     expect(signaturesSign.description.toLowerCase()).toContain("legacy");
   });
 });
+
+import {
+  signaturesEditRequest,
+  signaturesCancel,
+  signaturesRemind,
+  signaturesCreateSignature,
+  signaturesValidatePdfSignatures,
+} from "../../src/tools/signatures.js";
+
+const RID = "00000000-0000-0000-0000-000000000001";
+
+function sigClient(over: Record<string, ReturnType<typeof vi.fn>>) {
+  return fakeClient({
+    signatures: {
+      createRequest: vi.fn(), getRequestStatus: vi.fn(), sign: vi.fn(),
+      getMyRequests: vi.fn(), getSignatures: vi.fn(),
+      editRequest: over["editRequest"] ?? vi.fn(),
+      cancel: over["cancel"] ?? vi.fn(),
+      remind: over["remind"] ?? vi.fn(),
+      createSignature: over["createSignature"] ?? vi.fn(),
+      validatePdfSignatures: over["validatePdfSignatures"] ?? vi.fn(),
+    } as never,
+  });
+}
+
+const sigCtx = (client = sigClient({})) => ({ client, logger: fakeLogger(), downloads: fakeDownloads() });
+
+describe("signatures lifecycle", () => {
+  it("edit_request forwards signerId + recipient", async () => {
+    const editRequest = vi.fn().mockResolvedValue({ ok: true });
+    const args = signaturesEditRequest.inputSchema.parse({
+      requestId: RID,
+      signerId: "00000000-0000-0000-0000-000000000002",
+      recipient: "new@example.com",
+    });
+    await signaturesEditRequest.handler(args, sigCtx(sigClient({ editRequest })));
+    expect(editRequest).toHaveBeenCalledWith(RID, {
+      signerId: "00000000-0000-0000-0000-000000000002",
+      recipient: "new@example.com",
+    });
+  });
+
+  it("cancel forwards requestId", async () => {
+    const cancel = vi.fn().mockResolvedValue({ ok: true });
+    const args = signaturesCancel.inputSchema.parse({ requestId: RID });
+    await signaturesCancel.handler(args, sigCtx(sigClient({ cancel })));
+    expect(cancel).toHaveBeenCalledWith(RID);
+  });
+
+  it("remind forwards optional signerEmails", async () => {
+    const remind = vi.fn().mockResolvedValue({ skipped: [] });
+    const args = signaturesRemind.inputSchema.parse({ requestId: RID, signerEmails: ["a@b.com"] });
+    await signaturesRemind.handler(args, sigCtx(sigClient({ remind })));
+    expect(remind).toHaveBeenCalledWith(RID, { signerEmails: ["a@b.com"] });
+  });
+
+  it("create_signature forwards media handle", async () => {
+    const createSignature = vi.fn().mockResolvedValue({ signature: { hash: "0xabc" } });
+    const media = { type: "image" as const, name: "s.png", key: "/t/s.png", url: "https://cdn/x" };
+    const args = signaturesCreateSignature.inputSchema.parse({ media, name: "Personal" });
+    await signaturesCreateSignature.handler(args, sigCtx(sigClient({ createSignature })));
+    expect(createSignature).toHaveBeenCalledWith({ media, name: "Personal" });
+  });
+
+  it("create_signature rejects when media is malformed", () => {
+    expect(() =>
+      signaturesCreateSignature.inputSchema.parse({ media: { wrong: true } }),
+    ).toThrow();
+  });
+});

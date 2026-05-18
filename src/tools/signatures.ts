@@ -162,10 +162,125 @@ export const signaturesGetSignatures = defineTool({
     ),
 });
 
+const RemindSchema = z.object({
+  requestId: z.string().uuid(),
+  signerEmails: z.array(z.string().email()).max(50).optional(),
+});
+
+const EditRequestSchema = z.object({
+  requestId: z.string().uuid(),
+  signerId: z.string().uuid(),
+  recipient: z.string().email(),
+});
+
+const SigMediaHandleSchema = z.object({
+  type: z.enum(["document", "image", "video", "text", "call_to_action"]),
+  name: z.string(),
+  key: z.string(),
+  url: z.string(),
+  hash: z.string().optional(),
+  size: z.number().optional(),
+  thumbnail: z.string().optional(),
+  bluredThumbnail: z.string().optional(),
+  compressed: z.string().optional(),
+});
+
+const CreateSignatureSchema = z.object({
+  media: SigMediaHandleSchema,
+  name: z.string().min(1).max(200).optional(),
+});
+
+const ValidatePdfFileInputSchema = z.union([
+  z.object({ kind: z.literal("filePath"), path: z.string(), mimeType: z.string().default("application/pdf") }),
+  z.object({ kind: z.literal("url"), url: z.string().url(), mimeType: z.string().default("application/pdf") }),
+  z.object({ kind: z.literal("inline"), name: z.string(), mimeType: z.string().default("application/pdf"), base64Content: z.string() }),
+]);
+
+export const signaturesEditRequest = defineTool({
+  name: "chaindoc_signatures_edit_request",
+  description:
+    "Reassign a signer slot on a PENDING signature request. Preconditions: request must be pending. " +
+    "Otherwise returns code='wrong_state'.",
+  inputSchema: EditRequestSchema,
+  handler: (args, { client }) =>
+    client.run("chaindoc_signatures_edit_request", (sdk) =>
+      sdk.signatures.editRequest(args.requestId, { signerId: args.signerId, recipient: args.recipient }),
+    ),
+});
+
+export const signaturesCancel = defineTool({
+  name: "chaindoc_signatures_cancel",
+  description: "Cancel a PENDING signature request. Preconditions: request must be pending.",
+  inputSchema: z.object({ requestId: z.string().uuid() }),
+  handler: (args, { client }) =>
+    client.run("chaindoc_signatures_cancel", (sdk) => sdk.signatures.cancel(args.requestId)),
+});
+
+export const signaturesRemind = defineTool({
+  name: "chaindoc_signatures_remind",
+  description:
+    "Send a reminder email to pending signers on a request. Pass signerEmails to target specific signers; " +
+    "omit to remind all. Preconditions: request must be pending. 12-hour per-signer cooldown — rate-limited " +
+    "signers are returned in the response's `skipped[]` array (not as an error).",
+  inputSchema: RemindSchema,
+  handler: (args, { client }) =>
+    client.run("chaindoc_signatures_remind", (sdk) =>
+      sdk.signatures.remind(args.requestId, args.signerEmails !== undefined ? { signerEmails: args.signerEmails } : undefined),
+    ),
+});
+
+export const signaturesCreateSignature = defineTool({
+  name: "chaindoc_signatures_create_signature",
+  description:
+    "Create a reusable saved signature from an uploaded image. Upload via chaindoc_media_upload first, " +
+    "then pass the returned media handle. The new signature's `hash` is the id used by chaindoc_contracts_business_sign.",
+  inputSchema: CreateSignatureSchema,
+  handler: (args, { client }) =>
+    client.run("chaindoc_signatures_create_signature", (sdk) =>
+      sdk.signatures.createSignature({
+        media: args.media as Parameters<typeof sdk.signatures.createSignature>[0]["media"],
+        ...(args.name !== undefined && { name: args.name }),
+      } as Parameters<typeof sdk.signatures.createSignature>[0]),
+    ),
+});
+
+export const signaturesValidatePdfSignatures = defineTool({
+  name: "chaindoc_signatures_validate_pdf_signatures",
+  description:
+    "Validate digital signatures embedded in a PDF via the EU DSS service. " +
+    "Pass the PDF as filePath, url, or inline base64. The file is NOT stored.",
+  inputSchema: z.object({ file: ValidatePdfFileInputSchema }),
+  handler: async (args, { client }) => {
+    const f = args.file;
+    let blob: File | Blob;
+    if (f.kind === "filePath") {
+      const { readFile } = await import("node:fs/promises");
+      const buf = await readFile(f.path);
+      blob = new File([buf], f.path.split("/").pop() ?? "upload.pdf", { type: f.mimeType });
+    } else if (f.kind === "url") {
+      const resp = await fetch(f.url);
+      if (!resp.ok) throw Object.assign(new Error(`Failed to fetch ${f.url}: ${resp.status}`), { status: resp.status });
+      const buf = Buffer.from(await resp.arrayBuffer());
+      blob = new File([buf], f.url.split("/").pop() ?? "upload.pdf", { type: f.mimeType });
+    } else {
+      const buf = Buffer.from(f.base64Content, "base64");
+      blob = new File([buf], f.name, { type: f.mimeType });
+    }
+    return client.run("chaindoc_signatures_validate_pdf_signatures", (sdk) =>
+      sdk.signatures.validatePdfSignatures(blob),
+    );
+  },
+});
+
 export const signaturesTools: ToolDefinition<unknown>[] = [
   signaturesCreateRequest as ToolDefinition<unknown>,
   signaturesGetRequestStatus as ToolDefinition<unknown>,
   signaturesSign as ToolDefinition<unknown>,
   signaturesGetMyRequests as ToolDefinition<unknown>,
   signaturesGetSignatures as ToolDefinition<unknown>,
+  signaturesEditRequest as ToolDefinition<unknown>,
+  signaturesCancel as ToolDefinition<unknown>,
+  signaturesRemind as ToolDefinition<unknown>,
+  signaturesCreateSignature as ToolDefinition<unknown>,
+  signaturesValidatePdfSignatures as ToolDefinition<unknown>,
 ];
