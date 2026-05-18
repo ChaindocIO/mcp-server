@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { defineTool, type ToolDefinition } from "./types.js";
+import { deliverDownload } from "../core/downloads.js";
 
 /**
  * Contract Invoices API
@@ -137,6 +138,77 @@ export const invoicesMarkPaid = defineTool({
   },
 });
 
+const InvoiceTypeEnum = z.enum(["automatic", "manual"]);
+
+const InvoiceListAllSchema = z.object({
+  page: z.number().int().positive().default(1),
+  limit: z.number().int().positive().max(100).default(20),
+  status: InvoiceStatus.optional(),
+  type: InvoiceTypeEnum.optional(),
+  overdue: z.boolean().optional(),
+  dueDateFrom: z.string().datetime({ offset: true }).optional(),
+  dueDateTo: z.string().datetime({ offset: true }).optional(),
+  search: z.string().optional(),
+});
+
+// strict() rejects unknown keys (esp. `amount`, which the SDK does not accept).
+const InvoiceUpdateSchema = z
+  .object({
+    contractId: z.string().uuid(),
+    invoiceUuid: z.string().uuid(),
+    title: z.string().min(1).max(200).optional(),
+    description: z.string().max(2000).optional(),
+    dueDate: z.string().datetime({ offset: true }).optional(),
+    lineItems: z.array(LineItemSchema).max(50).optional(),
+  })
+  .strict();
+
+export const invoicesListAll = defineTool({
+  name: "chaindoc_invoices_list_all",
+  description:
+    "List invoices across all of the key owner's contracts. Response includes aggregate status counts.",
+  inputSchema: InvoiceListAllSchema,
+  handler: (args, { client }) =>
+    client.run("chaindoc_invoices_list_all", (sdk) => sdk.invoices.listAll(args)),
+});
+
+export const invoicesUpdate = defineTool({
+  name: "chaindoc_invoices_update",
+  description:
+    "Partial update of a DRAFT invoice. Supplied lineItems REPLACE the existing set. " +
+    "Preconditions: invoice must be DRAFT. (Total amount is derived from line items; cannot be set directly.)",
+  inputSchema: InvoiceUpdateSchema,
+  handler: (args, { client }) => {
+    const { contractId, invoiceUuid, ...patch } = args;
+    return client.run("chaindoc_invoices_update", (sdk) =>
+      sdk.invoices.update(contractId, invoiceUuid, patch),
+    );
+  },
+});
+
+export const invoicesCancel = defineTool({
+  name: "chaindoc_invoices_cancel",
+  description: "Cancel a draft / unpaid / overdue invoice. Voids any open Stripe checkout sessions.",
+  inputSchema: InvoiceIdInputSchema,
+  handler: (args, { client }) =>
+    client.run("chaindoc_invoices_cancel", (sdk) =>
+      sdk.invoices.cancel(args.contractId, args.invoiceUuid),
+    ),
+});
+
+export const invoicesDownloadPdf = defineTool({
+  name: "chaindoc_invoices_download_pdf",
+  description:
+    "Download the invoice PDF. The PDF exists only after the invoice has been sent (404 for a draft).",
+  inputSchema: InvoiceIdInputSchema,
+  handler: (args, { client, downloads }) =>
+    client.run("chaindoc_invoices_download_pdf", async (sdk) =>
+      deliverDownload(downloads, await sdk.invoices.downloadPdf(args.contractId, args.invoiceUuid), {
+        tool: "chaindoc_invoices_download_pdf",
+      }),
+    ),
+});
+
 export const invoicesTools: ToolDefinition<unknown>[] = [
   invoicesCreate as ToolDefinition<unknown>,
   invoicesList as ToolDefinition<unknown>,
@@ -144,4 +216,8 @@ export const invoicesTools: ToolDefinition<unknown>[] = [
   invoicesSend as ToolDefinition<unknown>,
   invoicesCharge as ToolDefinition<unknown>,
   invoicesMarkPaid as ToolDefinition<unknown>,
+  invoicesListAll as ToolDefinition<unknown>,
+  invoicesUpdate as ToolDefinition<unknown>,
+  invoicesCancel as ToolDefinition<unknown>,
+  invoicesDownloadPdf as ToolDefinition<unknown>,
 ];
