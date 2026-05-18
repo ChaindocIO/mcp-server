@@ -16,6 +16,11 @@ import type { ChaindocClient } from "../core/client.js";
  *   chaindoc://contracts                        (recent contracts)
  *   chaindoc://contracts/{id}                   (full contract)
  *   chaindoc://contracts/{id}/status            (lightweight status)
+ *   chaindoc://templates                        (recent templates)
+ *   chaindoc://templates/{id}                   (single template)
+ *   chaindoc://invoices                         (recent invoices)
+ *   chaindoc://contracts/{id}/stats             (contract stats)
+ *   chaindoc://contracts/{id}/termination       (contract termination)
  */
 
 export interface ResourceContent {
@@ -42,6 +47,13 @@ const RE_DOC_VERSION = /^chaindoc:\/\/documents\/versions\/([0-9a-f-]+)$/i;
 const RE_VERIFY = /^chaindoc:\/\/verification\/(0x[0-9a-fA-F]+)$/;
 const RE_CONTRACT = /^chaindoc:\/\/contracts\/([0-9a-f-]+)$/i;
 const RE_CONTRACT_STATUS = /^chaindoc:\/\/contracts\/([0-9a-f-]+)\/status$/i;
+
+const URI_RECENT_TEMPLATES = "chaindoc://templates";
+const URI_RECENT_INVOICES = "chaindoc://invoices";
+
+const RE_TEMPLATE = /^chaindoc:\/\/templates\/([0-9a-f-]+)$/i;
+const RE_CONTRACT_STATS = /^chaindoc:\/\/contracts\/([0-9a-f-]+)\/stats$/i;
+const RE_CONTRACT_TERMINATION = /^chaindoc:\/\/contracts\/([0-9a-f-]+)\/termination$/i;
 
 export async function listResources(client: ChaindocClient): Promise<ResourceListItem[]> {
   const items: ResourceListItem[] = [
@@ -75,6 +87,8 @@ export async function listResources(client: ChaindocClient): Promise<ResourceLis
       description: "Index of contracts created via the API.",
       mimeType: "application/json",
     },
+    { uri: URI_RECENT_TEMPLATES, name: "Recent templates", description: "Index of owned templates.",                       mimeType: "application/json" },
+    { uri: URI_RECENT_INVOICES,  name: "Recent invoices",  description: "Cross-contract invoice index for the key owner.", mimeType: "application/json" },
   ];
 
   // Best-effort enrichment with concrete IDs so @-mention can find them.
@@ -121,6 +135,27 @@ export async function listResources(client: ChaindocClient): Promise<ResourceLis
     /* swallow */
   }
 
+  try {
+    const list = await client.run("resources_list_templates", (sdk) =>
+      sdk.templates.list({ page: 1, limit: 25 }),
+    );
+    const arr = Array.isArray((list as { templates?: unknown[] }).templates)
+      ? ((list as { templates: Array<{ id?: string; name?: string; status?: string }> }).templates)
+      : Array.isArray((list as { items?: unknown[] }).items)
+      ? ((list as unknown as { items: Array<{ id?: string; name?: string; status?: string }> }).items)
+      : [];
+    for (const t of arr) {
+      if (typeof t.id === "string") {
+        items.push({
+          uri: `chaindoc://templates/${t.id}`,
+          name: t.name ?? `Template ${t.id}`,
+          description: `status=${t.status ?? "unknown"}`,
+          mimeType: "application/json",
+        });
+      }
+    }
+  } catch { /* swallow */ }
+
   return items;
 }
 
@@ -152,7 +187,7 @@ export async function readResource(uri: string, client: ChaindocClient): Promise
     return jsonResource(uri, data);
   }
 
-  let m = RE_CONTRACT_STATUS.exec(uri);
+  let m = uri.match(RE_CONTRACT_STATUS);
   if (m) {
     const id = m[1]!;
     const data = await client.run("resources_read_contract_status", (sdk) =>
@@ -160,13 +195,13 @@ export async function readResource(uri: string, client: ChaindocClient): Promise
     );
     return jsonResource(uri, data);
   }
-  m = RE_CONTRACT.exec(uri);
+  m = uri.match(RE_CONTRACT);
   if (m) {
     const id = m[1]!;
     const data = await client.run("resources_read_contract", (sdk) => sdk.contracts.get(id));
     return jsonResource(uri, data);
   }
-  m = RE_SIGREQUEST.exec(uri);
+  m = uri.match(RE_SIGREQUEST);
   if (m) {
     const id = m[1]!;
     const data = await client.run("resources_read_signature_request", (sdk) =>
@@ -174,7 +209,7 @@ export async function readResource(uri: string, client: ChaindocClient): Promise
     );
     return jsonResource(uri, data);
   }
-  m = RE_DOC_VERSION.exec(uri);
+  m = uri.match(RE_DOC_VERSION);
   if (m) {
     const versionId = m[1]!;
     const data = await client.run("resources_read_document_version", (sdk) =>
@@ -182,11 +217,47 @@ export async function readResource(uri: string, client: ChaindocClient): Promise
     );
     return jsonResource(uri, data);
   }
-  m = RE_VERIFY.exec(uri);
+  m = uri.match(RE_VERIFY);
   if (m) {
     const versionHash = m[1]!;
     const data = await client.run("resources_read_verification", (sdk) =>
       sdk.documents.verify({ versionHash }),
+    );
+    return jsonResource(uri, data);
+  }
+
+  if (uri === URI_RECENT_TEMPLATES) {
+    const data = await client.run("resources_read_templates", (sdk) =>
+      sdk.templates.list({ page: 1, limit: 25 }),
+    );
+    return jsonResource(uri, data);
+  }
+  if (uri === URI_RECENT_INVOICES) {
+    const data = await client.run("resources_read_invoices", (sdk) =>
+      sdk.invoices.listAll({ page: 1, limit: 25 }),
+    );
+    return jsonResource(uri, data);
+  }
+
+  m = uri.match(RE_TEMPLATE);
+  if (m) {
+    const id = m[1]!;
+    const data = await client.run("resources_read_template", (sdk) => sdk.templates.get(id));
+    return jsonResource(uri, data);
+  }
+  m = uri.match(RE_CONTRACT_STATS);
+  if (m) {
+    const id = m[1]!;
+    const data = await client.run("resources_read_contract_stats", (sdk) =>
+      sdk.contracts.getStats(id),
+    );
+    return jsonResource(uri, data);
+  }
+  m = uri.match(RE_CONTRACT_TERMINATION);
+  if (m) {
+    const id = m[1]!;
+    const data = await client.run("resources_read_contract_termination", (sdk) =>
+      sdk.contracts.termination.get(id),
     );
     return jsonResource(uri, data);
   }
