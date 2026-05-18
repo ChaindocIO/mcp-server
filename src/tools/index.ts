@@ -7,6 +7,7 @@ import { embeddedTools } from "./embedded.js";
 import { contractsTools } from "./contracts.js";
 import { contractsTerminationTools } from "./contracts-termination.js";
 import { contractsPaymentTermsTools } from "./contracts-payment-terms.js";
+import { contractsAgreementsTools } from "./contracts-agreements.js";
 import { invoicesTools } from "./invoices.js";
 import { transactionsTools } from "./transactions.js";
 import { templatesTools } from "./templates.js";
@@ -21,6 +22,7 @@ export const allTools: ToolDefinition<unknown>[] = [
   ...contractsTools,
   ...contractsTerminationTools,
   ...contractsPaymentTermsTools,
+  ...contractsAgreementsTools,
   ...invoicesTools,
   ...transactionsTools,
   ...templatesTools,
