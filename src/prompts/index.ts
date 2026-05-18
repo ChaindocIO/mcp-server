@@ -147,6 +147,83 @@ export const verifyIncomingWebhook: PromptDefinition = {
   ],
 };
 
+export const manageContractTermination: PromptDefinition = {
+  name: "manage_contract_termination",
+  description: "Walk through terminating a contract: status check, type choice, approval path.",
+  arguments: [
+    { name: "contractId", description: "Contract UUID", required: true },
+    { name: "terminationType", description: "Optional hint: 'one_side' or 'mutual_approval'" },
+  ],
+  build: ({ contractId, terminationType }) => [
+    {
+      role: "user",
+      content: {
+        type: "text",
+        text:
+          `Help me terminate contract ${contractId}. ` +
+          `1) Call chaindoc_contracts_termination_get_status — confirm canInitiateTermination and surface outstanding ` +
+          `invoices / upcoming payments / earliest effective date. ` +
+          `2) Choose terminationType${terminationType ? ` (hint: ${terminationType})` : ""}: 'one_side' terminates immediately; ` +
+          `'mutual_approval' creates a pending request that the counterparty must approve. ` +
+          `3) Call chaindoc_contracts_terminate. ` +
+          `4) For mutual_approval, explain that the COUNTERPARTY (not me) must call chaindoc_contracts_termination_approve; ` +
+          `a wrong_party error code means I tried to approve my own request. ` +
+          `5) Surface chaindoc_contracts_termination_get for status, and offer to cancel my pending request via _cancel.`,
+      },
+    },
+  ],
+};
+
+export const authorAndPublishTemplate: PromptDefinition = {
+  name: "author_and_publish_template",
+  description: "Create or revise a template, preview, iterate, publish.",
+  arguments: [
+    { name: "templateId", description: "Existing template UUID (omit to start fresh)" },
+  ],
+  build: ({ templateId }) => [
+    {
+      role: "user",
+      content: {
+        type: "text",
+        text:
+          (templateId
+            ? `Help me revise template ${templateId}. Read it with chaindoc_templates_get to see current/last-published versions. `
+            : `Help me author a new template. `) +
+          `1) Decide category + draft Tiptap contentJson + variablesSchema + signerSlots. ` +
+          `2) Save via chaindoc_templates_create or _update. ` +
+          `3) Preview with chaindoc_templates_preview_html and chaindoc_templates_preview_pdf — iterate. ` +
+          `4) Publish via chaindoc_templates_publish. ` +
+          `Note: editing a PUBLISHED template forks a draft; existing callers of _create_document still get the last-published ` +
+          `version until the next publish.`,
+      },
+    },
+  ],
+};
+
+export const billRecurringOnImportedContract: PromptDefinition = {
+  name: "bill_recurring_on_imported_contract",
+  description: "Configure recurring billing on an imported active contract.",
+  arguments: [
+    { name: "contractId", description: "Contract UUID (must be import-origin ACTIVE)", required: true },
+  ],
+  build: ({ contractId }) => [
+    {
+      role: "user",
+      content: {
+        type: "text",
+        text:
+          `Set up recurring billing on imported contract ${contractId}. ` +
+          `1) Confirm the contract is import-origin and ACTIVE via chaindoc_contracts_get. ` +
+          `2) Design paymentTerms[] (deposit / recurring / one_time as appropriate). ` +
+          `3) Call chaindoc_contracts_setup_recurring. ` +
+          `4) Explain that billing starts only AFTER the contragent accepts the emailed approval and links a payment method. ` +
+          `5) If the contragent doesn't respond, use chaindoc_contracts_resend_recurring_approval; ` +
+          `cancel the pending approval with chaindoc_contracts_cancel_recurring_approval.`,
+      },
+    },
+  ],
+};
+
 export const allPrompts: PromptDefinition[] = [
   summarizeDocument,
   prepareSignatureRequest,
@@ -154,4 +231,7 @@ export const allPrompts: PromptDefinition[] = [
   verifyChainOfCustody,
   setUpContractWithBilling,
   verifyIncomingWebhook,
+  manageContractTermination,
+  authorAndPublishTemplate,
+  billRecurringOnImportedContract,
 ];
