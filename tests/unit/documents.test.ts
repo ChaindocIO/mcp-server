@@ -9,6 +9,8 @@ import {
   documentsCommentsAdd,
   documentsCommentsList,
   documentsSendPublicLink,
+  documentsDownload,
+  documentsPreview,
 } from "../../src/tools/documents.js";
 import { fakeClient, fakeDownloads, fakeLogger } from "./_fakes.js";
 
@@ -139,5 +141,57 @@ describe("documents comments + public link", () => {
 
   it("send_public_link rejects invalid email", () => {
     expect(() => documentsSendPublicLink.inputSchema.parse({ documentId: ID, email: "nope" })).toThrow();
+  });
+});
+
+describe("documents binary downloads", () => {
+  it("download passes versionId and routes through the download adapter", async () => {
+    const download = vi.fn().mockResolvedValue({
+      data: new TextEncoder().encode("pdf-bytes").buffer,
+      contentType: "application/pdf",
+      fileName: "v.pdf",
+    });
+    const client = fakeClient({
+      documents: {
+        create: vi.fn(), update: vi.fn(), updateRights: vi.fn(),
+        verify: vi.fn(), getVerificationStatus: vi.fn(),
+        get: vi.fn(), getVersions: vi.fn(), search: vi.fn(), listShared: vi.fn(),
+        getActivity: vi.fn(), getDownloads: vi.fn(),
+        sendPublicLink: vi.fn(),
+        comments: { add: vi.fn(), list: vi.fn() },
+        download, preview: vi.fn(),
+      } as never,
+    });
+    const args = documentsDownload.inputSchema.parse({ versionId: ID });
+    const r = await documentsDownload.handler(args, {
+      client, logger: fakeLogger(), downloads: fakeDownloads({ mode: "inline" }),
+    });
+    expect(download).toHaveBeenCalledWith(ID);
+    expect((r as { kind: string }).kind).toBe("inline");
+    expect((r as { contentType: string }).contentType).toBe("application/pdf");
+  });
+
+  it("preview routes through adapter same as download", async () => {
+    const preview = vi.fn().mockResolvedValue({
+      data: new TextEncoder().encode("preview").buffer,
+      contentType: "application/pdf",
+    });
+    const client = fakeClient({
+      documents: {
+        create: vi.fn(), update: vi.fn(), updateRights: vi.fn(),
+        verify: vi.fn(), getVerificationStatus: vi.fn(),
+        get: vi.fn(), getVersions: vi.fn(), search: vi.fn(), listShared: vi.fn(),
+        getActivity: vi.fn(), getDownloads: vi.fn(),
+        sendPublicLink: vi.fn(),
+        comments: { add: vi.fn(), list: vi.fn() },
+        download: vi.fn(), preview,
+      } as never,
+    });
+    const r = await documentsPreview.handler(
+      documentsPreview.inputSchema.parse({ versionId: ID }),
+      { client, logger: fakeLogger(), downloads: fakeDownloads({ mode: "inline" }) },
+    );
+    expect(preview).toHaveBeenCalledWith(ID);
+    expect((r as { kind: string }).kind).toBe("inline");
   });
 });

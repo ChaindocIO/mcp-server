@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { defineTool, type ToolDefinition } from "./types.js";
+import { deliverDownload } from "../core/downloads.js";
 
 /**
  * Documents API
@@ -310,6 +311,66 @@ export const documentsSendPublicLink = defineTool({
     ),
 });
 
+const VersionIdSchema = z.object({ versionId: z.string().uuid() });
+
+export const documentsDownload = defineTool({
+  name: "chaindoc_documents_download",
+  description:
+    "Download a document version's bytes. On stdio returns { kind: 'disk', path, ... }; " +
+    "on HTTP returns { kind: 'inline', base64, ... } up to CHAINDOC_INLINE_DOWNLOAD_MAX_BYTES.",
+  inputSchema: VersionIdSchema,
+  handler: (args, { client, downloads }) =>
+    client.run("chaindoc_documents_download", async (sdk) =>
+      deliverDownload(downloads, await sdk.documents.download(args.versionId), {
+        tool: "chaindoc_documents_download",
+      }),
+    ),
+});
+
+export const documentsPreview = defineTool({
+  name: "chaindoc_documents_preview",
+  description: "Same bytes as download, served as a preview (logged as preview in activity).",
+  inputSchema: VersionIdSchema,
+  handler: (args, { client, downloads }) =>
+    client.run("chaindoc_documents_preview", async (sdk) =>
+      deliverDownload(downloads, await sdk.documents.preview(args.versionId), {
+        tool: "chaindoc_documents_preview",
+      }),
+    ),
+});
+
+export const documentsWaitForVerification = defineTool({
+  name: "chaindoc_documents_wait_for_verification",
+  description:
+    "Block until a document version's blockchain anchor is verified (or timeoutMs elapses). " +
+    "Use after chaindoc_documents_create with status='published' and before chaindoc_signatures_create_request. " +
+    "Polls chaindoc_documents_get_verification_status every intervalMs.",
+  inputSchema: z.object({
+    versionId: z.string().uuid(),
+    timeoutMs: z.number().int().positive().max(120_000).default(60_000),
+    intervalMs: z.number().int().positive().min(500).max(10_000).default(2_000),
+  }),
+  handler: async (args, { client }) => {
+    const deadline = Date.now() + (args.timeoutMs ?? 60_000);
+    const interval = args.intervalMs ?? 2_000;
+    while (Date.now() < deadline) {
+      const status = await client.run("documents.wait_for_verification.poll", (sdk) =>
+        sdk.documents.getVerificationStatus(args.versionId),
+      );
+      if ((status as { verified?: boolean }).verified === true) {
+        return { verified: true, status };
+      }
+      await new Promise((r) => setTimeout(r, interval));
+    }
+    return {
+      verified: false,
+      timedOut: true,
+      message:
+        "Version not verified within timeout. The blockchain anchor may still be in flight; retry the same poll later.",
+    };
+  },
+});
+
 export const documentsTools: ToolDefinition<unknown>[] = [
   documentsCreate as ToolDefinition<unknown>,
   documentsUpdate as ToolDefinition<unknown>,
@@ -325,4 +386,7 @@ export const documentsTools: ToolDefinition<unknown>[] = [
   documentsCommentsAdd as ToolDefinition<unknown>,
   documentsCommentsList as ToolDefinition<unknown>,
   documentsSendPublicLink as ToolDefinition<unknown>,
+  documentsDownload as ToolDefinition<unknown>,
+  documentsPreview as ToolDefinition<unknown>,
+  documentsWaitForVerification as ToolDefinition<unknown>,
 ];
