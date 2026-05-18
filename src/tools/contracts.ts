@@ -332,6 +332,71 @@ export const contractsAttachDocument = defineTool({
     ),
 });
 
+const RecurringPaymentTermSchema = z.object({
+  type: z.literal("recurring"),
+  name: z.string(),
+  description: z.string().optional(),
+  amount: z.string().regex(/^\d+(\.\d{1,2})?$/, "decimal string e.g. '5000.00'"),
+  frequency: z.enum(["weekly", "biweekly", "monthly", "quarterly", "yearly"]),
+  dayOfPeriod: z.number().int().min(1).max(28),
+  startDate: z.string().datetime({ offset: true }),
+  endDate: z.string().datetime({ offset: true }).optional(),
+  totalPayments: z.number().int().positive().optional(),
+  autoCharge: z.boolean().optional(),
+});
+
+const SetupRecurringSchema = z.object({
+  contractId: z.string().uuid(),
+  paymentTerms: z.array(RecurringPaymentTermSchema).min(1),
+  paymentMethodRequired: z.boolean().optional(),
+  messageToContragent: z.string().max(2000).optional(),
+  expiresInDays: z.number().int().positive().optional(),
+});
+
+export const contractsGetStats = defineTool({
+  name: "chaindoc_contracts_get_stats",
+  description:
+    "Financial aggregate for a contract: total value, paid/pending/remaining, invoice count.",
+  inputSchema: z.object({ contractId: z.string().uuid() }),
+  handler: (args, { client }) =>
+    client.run("chaindoc_contracts_get_stats", (sdk) => sdk.contracts.getStats(args.contractId)),
+});
+
+export const contractsSetupRecurring = defineTool({
+  name: "chaindoc_contracts_setup_recurring",
+  description:
+    "Configure recurring billing on an imported ACTIVE contract. Requires ≥1 recurring paymentTerms. " +
+    "Emails an approval invitation to the contragent; billing starts only after they accept and link a payment method. " +
+    "Preconditions: contract must be ACTIVE and import-origin.",
+  inputSchema: SetupRecurringSchema,
+  handler: (args, { client }) => {
+    const { contractId, ...payload } = args;
+    return client.run("chaindoc_contracts_setup_recurring", (sdk) =>
+      sdk.contracts.setupRecurring(contractId, payload),
+    );
+  },
+});
+
+export const contractsResendRecurringApproval = defineTool({
+  name: "chaindoc_contracts_resend_recurring_approval",
+  description: "Resend the pending recurring-approval invitation. Returns 404 if none pending.",
+  inputSchema: z.object({ contractId: z.string().uuid() }),
+  handler: (args, { client }) =>
+    client.run("chaindoc_contracts_resend_recurring_approval", (sdk) =>
+      sdk.contracts.resendRecurringApproval(args.contractId),
+    ),
+});
+
+export const contractsCancelRecurringApproval = defineTool({
+  name: "chaindoc_contracts_cancel_recurring_approval",
+  description: "Cancel a pending recurring-approval request. Returns 404 if none pending.",
+  inputSchema: z.object({ contractId: z.string().uuid() }),
+  handler: (args, { client }) =>
+    client.run("chaindoc_contracts_cancel_recurring_approval", (sdk) =>
+      sdk.contracts.cancelRecurringApproval(args.contractId),
+    ),
+});
+
 export const contractsTools: ToolDefinition<unknown>[] = [
   contractsCreate as ToolDefinition<unknown>,
   contractsList as ToolDefinition<unknown>,
@@ -348,4 +413,8 @@ export const contractsTools: ToolDefinition<unknown>[] = [
   contractsUpdate as ToolDefinition<unknown>,
   contractsDelete as ToolDefinition<unknown>,
   contractsAttachDocument as ToolDefinition<unknown>,
+  contractsGetStats as ToolDefinition<unknown>,
+  contractsSetupRecurring as ToolDefinition<unknown>,
+  contractsResendRecurringApproval as ToolDefinition<unknown>,
+  contractsCancelRecurringApproval as ToolDefinition<unknown>,
 ];

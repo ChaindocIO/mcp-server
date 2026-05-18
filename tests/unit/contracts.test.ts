@@ -2,11 +2,32 @@ import { describe, it, expect, vi } from "vitest";
 import {
   contractsCreateEmpty, contractsCreateMinimal, contractsImport,
   contractsUpdate, contractsDelete, contractsAttachDocument,
+  contractsGetStats, contractsSetupRecurring,
+  contractsResendRecurringApproval, contractsCancelRecurringApproval,
 } from "../../src/tools/contracts.js";
 import { fakeClient, fakeDownloads, fakeLogger } from "./_fakes.js";
 
 const CID = "00000000-0000-0000-0000-000000000001";
 const DID = "00000000-0000-0000-0000-000000000002";
+
+function emptyContractsSdk() {
+  return {
+    create: vi.fn(), list: vi.fn(), get: vi.fn(), getStatus: vi.fn(),
+    getActivities: vi.fn(), addPaymentSetup: vi.fn(),
+    send: vi.fn(), cancel: vi.fn(), terminate: vi.fn(),
+    createEmpty: vi.fn(), createMinimal: vi.fn(), import: vi.fn(),
+    update: vi.fn(), delete: vi.fn(), attachDocument: vi.fn(),
+    getStats: vi.fn(),
+    setupRecurring: vi.fn(),
+    resendRecurringApproval: vi.fn(),
+    cancelRecurringApproval: vi.fn(),
+    listSigningRequests: vi.fn(),
+    getSigningRequest: vi.fn(),
+    resendSigningRequest: vi.fn(),
+    cancelSigningRequest: vi.fn(),
+    businessSign: vi.fn(),
+  };
+}
 
 function buildClient(over: Record<string, ReturnType<typeof vi.fn>>) {
   return fakeClient({
@@ -83,5 +104,56 @@ describe("contracts create variants + lifecycle additions", () => {
     const args = contractsAttachDocument.inputSchema.parse({ contractId: CID, documentId: DID });
     await contractsAttachDocument.handler(args, ctx(buildClient({ attachDocument: attach })));
     expect(attach).toHaveBeenCalledWith(CID, { documentId: DID });
+  });
+});
+
+describe("contracts stats + recurring approval", () => {
+  it("get_stats forwards contractId", async () => {
+    const getStats = vi.fn().mockResolvedValue({ stats: {} });
+    const client = fakeClient({ contracts: { ...emptyContractsSdk(), getStats } as never });
+    const args = contractsGetStats.inputSchema.parse({ contractId: CID });
+    await contractsGetStats.handler(args, { client, logger: fakeLogger(), downloads: fakeDownloads() });
+    expect(getStats).toHaveBeenCalledWith(CID);
+  });
+
+  it("setup_recurring requires non-empty paymentTerms", () => {
+    expect(() =>
+      contractsSetupRecurring.inputSchema.parse({ contractId: CID, paymentTerms: [] }),
+    ).toThrow();
+  });
+
+  it("setup_recurring forwards paymentTerms array", async () => {
+    const setupRecurring = vi.fn().mockResolvedValue({ ok: true });
+    const client = fakeClient({ contracts: { ...emptyContractsSdk(), setupRecurring } as never });
+    const term = {
+      type: "recurring" as const,
+      name: "Monthly retainer",
+      amount: "1000.00",
+      frequency: "monthly" as const,
+      dayOfPeriod: 1,
+      startDate: "2026-06-01T00:00:00Z",
+    };
+    const args = contractsSetupRecurring.inputSchema.parse({
+      contractId: CID,
+      paymentTerms: [term],
+    });
+    await contractsSetupRecurring.handler(args, { client, logger: fakeLogger(), downloads: fakeDownloads() });
+    expect(setupRecurring).toHaveBeenCalledWith(CID, { paymentTerms: [term] });
+  });
+
+  it("resend_recurring_approval forwards contractId", async () => {
+    const resend = vi.fn().mockResolvedValue({ ok: true });
+    const client = fakeClient({ contracts: { ...emptyContractsSdk(), resendRecurringApproval: resend } as never });
+    const args = contractsResendRecurringApproval.inputSchema.parse({ contractId: CID });
+    await contractsResendRecurringApproval.handler(args, { client, logger: fakeLogger(), downloads: fakeDownloads() });
+    expect(resend).toHaveBeenCalledWith(CID);
+  });
+
+  it("cancel_recurring_approval forwards contractId", async () => {
+    const cancel = vi.fn().mockResolvedValue({ ok: true });
+    const client = fakeClient({ contracts: { ...emptyContractsSdk(), cancelRecurringApproval: cancel } as never });
+    const args = contractsCancelRecurringApproval.inputSchema.parse({ contractId: CID });
+    await contractsCancelRecurringApproval.handler(args, { client, logger: fakeLogger(), downloads: fakeDownloads() });
+    expect(cancel).toHaveBeenCalledWith(CID);
   });
 });
