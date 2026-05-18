@@ -59,6 +59,11 @@ async function main(): Promise<void> {
         maxDelayMs: config.retryMaxDelayMs,
       },
       logger: reqLogger,
+      downloads: {
+        mode: config.downloadMode === "auto" ? "inline" : config.downloadMode,
+        dir: config.downloadDir,
+        inlineMaxBytes: config.inlineDownloadMaxBytes,
+      },
     });
 
     const transport = new StreamableHTTPServerTransport({

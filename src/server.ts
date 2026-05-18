@@ -14,6 +14,9 @@ import { toChaindocMcpError } from "./core/errors.js";
 import { allTools } from "./tools/index.js";
 import { listResources, readResource } from "./resources/index.js";
 import { allPrompts } from "./prompts/index.js";
+import type { DownloadAdapterConfig, DownloadAdapterMode } from "./core/downloads.js";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 export interface BuildServerOptions {
   apiKey: string;
@@ -22,6 +25,7 @@ export interface BuildServerOptions {
   timeoutMs?: number;
   retry?: { maxRetries?: number; baseDelayMs?: number; maxDelayMs?: number };
   logger?: Logger;
+  downloads?: { mode?: DownloadAdapterMode; dir?: string; inlineMaxBytes?: number };
 }
 
 /**
@@ -40,10 +44,16 @@ export function buildServer(opts: BuildServerOptions): Server {
     logger,
   });
 
+  const downloads: DownloadAdapterConfig = {
+    mode: opts.downloads?.mode ?? "auto",
+    dir: opts.downloads?.dir ?? join(tmpdir(), "chaindoc-mcp"),
+    inlineMaxBytes: opts.downloads?.inlineMaxBytes ?? 4 * 1024 * 1024,
+  };
+
   const server = new Server(
     {
       name: "chaindoc-mcp",
-      version: "0.1.0",
+      version: "0.2.0",
     },
     {
       capabilities: {
@@ -80,7 +90,7 @@ export function buildServer(opts: BuildServerOptions): Server {
       });
     }
     try {
-      const result = await tool.handler(parsed.data, { client, logger });
+      const result = await tool.handler(parsed.data, { client, logger, downloads });
       return {
         content: [
           {

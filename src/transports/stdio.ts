@@ -18,6 +18,11 @@ async function main(): Promise<void> {
       maxDelayMs: config.retryMaxDelayMs,
     },
     logger,
+    downloads: {
+      mode: config.downloadMode === "auto" ? "disk" : config.downloadMode,
+      dir: config.downloadDir,
+      inlineMaxBytes: config.inlineDownloadMaxBytes,
+    },
   });
 
   const transport = new StdioServerTransport();
