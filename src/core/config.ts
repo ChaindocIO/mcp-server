@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 /**
  * Configuration for the Chaindoc MCP server. All values come from
@@ -28,6 +30,9 @@ export const ConfigSchema = z.object({
   retryMaxDelayMs: z.coerce.number().int().positive().default(10_000),
   port: z.coerce.number().int().positive().default(8787),
   host: z.string().default("0.0.0.0"),
+  downloadMode: z.enum(["auto", "disk", "inline"]).default("auto"),
+  downloadDir: z.string().default(join(tmpdir(), "chaindoc-mcp")),
+  inlineDownloadMaxBytes: z.coerce.number().int().positive().default(4 * 1024 * 1024),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;
@@ -52,6 +57,9 @@ export function loadConfig(opts: LoadConfigOptions = {}): Config {
     retryMaxDelayMs: process.env["CHAINDOC_RETRY_MAX_DELAY_MS"],
     port: process.env["PORT"],
     host: process.env["HOST"],
+    downloadMode: process.env["CHAINDOC_DOWNLOAD_MODE"],
+    downloadDir: process.env["CHAINDOC_DOWNLOAD_DIR"],
+    inlineDownloadMaxBytes: process.env["CHAINDOC_INLINE_DOWNLOAD_MAX_BYTES"],
   });
 
   if (!parsed.success) {
