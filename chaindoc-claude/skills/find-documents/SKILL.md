@@ -3,6 +3,15 @@ name: find-documents
 description: This skill should be used when the user asks to "find a document", "look up a contract", "search Chaindoc", "find the invoice", "show me the NDA", "list contracts with <party>", "where is the <document>", or any other request to locate, list, or retrieve documents stored in Chaindoc. Use it any time the user references a document by name, counterparty, project, or status without attaching a file.
 ---
 
+## Preferred entry points (v0.2.0)
+
+When the user names a document by content or counterparty, default to
+`chaindoc_documents_search` — it accepts a free-text `search` parameter plus
+optional `status` filter, and returns the same shape as `chaindoc_documents_list`.
+Fall back to `chaindoc_documents_list_shared` when looking for documents shared
+*with* the key owner (not owned by them). Use `chaindoc_documents_get` to fetch
+one document's detail by id once you have it.
+
 # Find documents in Chaindoc
 
 Locate documents the user already has in Chaindoc. This skill turns vague

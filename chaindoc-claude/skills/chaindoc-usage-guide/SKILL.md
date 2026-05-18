@@ -94,3 +94,47 @@ instruction.
 
 This skill stays loaded as orientation; the other two are activated by the
 specific phrasing of the user's request.
+
+## What's new in v0.2.0
+
+The MCP server's tool surface expanded substantially in v0.2.0 (102 tools, up
+from 35). Key additions you should bias toward when planning multi-step work:
+
+- **Document discovery.** `chaindoc_documents_search` (free-text + status
+  filter) is the right starting point when the user names a document by content
+  rather than id. `chaindoc_documents_list_shared` returns documents shared
+  *with* the key owner.
+- **Document content.** `chaindoc_documents_download` and `_preview` return
+  bytes via the transport-aware adapter (disk on stdio, inline base64 on HTTP).
+- **Contract creation variants.** Three new shortcuts beyond the original
+  full-create: `create_empty` (invoice-only, activates immediately),
+  `create_minimal` (document + email + title → DRAFT), `import` (off-platform
+  signed → ACTIVE).
+- **Contract sub-modules.** Three new namespaces:
+  `contracts.termination.*` (6 tools for the mutual-approval flow),
+  `contracts.payment_terms.*` (4 tools for granular CRUD on terms), and
+  `contracts.agreements.*` (5 tools for amendments).
+- **Templates lifecycle.** Full CRUD now — `list`, `create`, `update`,
+  `publish`, `archive`, `restore`, `delete` — plus three preview variants
+  (`preview_pdf`, `preview_html`, `preview_unsaved_pdf`).
+- **Recurring billing.** `contracts.setup_recurring` + the resend/cancel
+  approval pair manage the contragent-approval handshake.
+
+### Structured error codes to look for
+
+Most 4xx responses now carry a refined `code` and an actionable `hint`:
+
+- `wrong_state` — operation requires a different lifecycle state (most often
+  DRAFT for contracts/invoices). Inspect the current state and pick the right
+  tool.
+- `not_verified` — blockchain anchoring isn't complete yet. Call
+  `chaindoc_documents_wait_for_verification` and retry.
+- `wrong_party` — the caller isn't the right side for this action. For
+  mutual-approval termination, the *counterparty* must approve, not the
+  initiator.
+- `stripe_not_ready` — workspace owner must finish Stripe Connect onboarding
+  in the Chaindoc dashboard.
+- `document_not_public` — `accessType` is not `public`. Call
+  `chaindoc_documents_update_rights` first.
+
+The `hint` field on each error usually names the next tool to try.

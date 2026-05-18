@@ -88,6 +88,22 @@ Close with a single suggested next step phrased as a question, not a command:
 
 Do not execute the next action automatically — wait for the user.
 
+## Fetching the bytes (v0.2.0)
+
+To actually read the PDF contents for summarization, use
+`chaindoc_documents_download` (or `_preview` for the logged-as-preview variant)
+on the specific `versionId`. The tool returns:
+
+- On stdio: `{ kind: "disk", path, contentType, sizeBytes, sha256 }` — open the
+  file at `path` (it's inside `CHAINDOC_DOWNLOAD_DIR`).
+- On HTTP: `{ kind: "inline", base64, contentType, sizeBytes, sha256 }` —
+  decode the `base64` field. Capped at `CHAINDOC_INLINE_DOWNLOAD_MAX_BYTES`
+  (default 4 MB).
+
+If the file is larger than the inline cap, the tool throws
+`code: "payload_too_large"`. Either raise the cap or run the MCP server on
+stdio to land the file on disk.
+
 ## Length and tone
 
 Aim for under 250 words for a contract summary, under 100 words for an invoice

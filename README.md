@@ -11,10 +11,10 @@ send [e-signature requests](https://chaindoc.io/signing), render
 [contract payments](https://chaindoc.io/payments), and
 [verify any document](https://chaindoc.io/verify-document) on chain.
 
-> **Status:** v0.1.1. Built against the
+> **Status:** v0.2.0. Built against the
 > [Chaindoc REST API and SDK docs](https://chaindoc.io/docs). All endpoints in
 > this README are real. Runtime depends on
-> [`@chaindoc_io/server-sdk@^2.0.1`](https://www.npmjs.com/package/@chaindoc_io/server-sdk),
+> [`@chaindoc_io/server-sdk@^2.1.0`](https://www.npmjs.com/package/@chaindoc_io/server-sdk),
 > which covers documents, signatures, contracts, invoices, transactions,
 > templates, embedded sessions, and webhook verification.
 
@@ -136,6 +136,9 @@ one deployment can serve many tenants.
 | `CHAINDOC_RETRY_MAX_RETRIES` | no | `3` | SDK retry tuning. |
 | `CHAINDOC_RETRY_BASE_DELAY_MS` | no | `1000` | |
 | `CHAINDOC_RETRY_MAX_DELAY_MS` | no | `10000` | |
+| `CHAINDOC_DOWNLOAD_MODE` | no | `auto` | `auto`\|`disk`\|`inline`. Auto = `disk` on stdio, `inline` on HTTP. |
+| `CHAINDOC_DOWNLOAD_DIR` | no | `<os.tmpdir>/chaindoc-mcp` | Where binary downloads land when mode resolves to `disk`. |
+| `CHAINDOC_INLINE_DOWNLOAD_MAX_BYTES` | no | `4194304` | Caps inline base64 size; over → `payload_too_large`. |
 | `PORT` | no | `8787` | HTTP transport. |
 | `HOST` | no | `0.0.0.0` | HTTP transport. |
 
@@ -242,6 +245,36 @@ server exposes is a **verifier**:
 |---|---|
 | `chaindoc_webhooks_verify` | Wraps `Chaindoc.webhooks.verify()` — HMAC-SHA256 + 5-minute replay window. Returns `{ valid, envelope? }` where `envelope` is the canonical `{ id, type, createdAt, data }` payload. Required headers: `X-Chaindoc-Signature` (`v1=<hex>`), `X-Chaindoc-Timestamp`, `X-Chaindoc-Event`, `X-Chaindoc-Delivery-Id`. |
 
+### v0.2.0 — extended surface
+
+**Documents (extended):** adds `_get`, `_get_versions`, `_search`, `_list_shared`,
+`_get_activity`, `_get_downloads`, `_send_public_link`, `_download`, `_preview`,
+`_comments_add`, `_comments_list`, and the polling helper `_wait_for_verification`.
+
+**Signatures (extended):** adds `_edit_request`, `_cancel`, `_remind`,
+`_create_signature`, `_validate_pdf_signatures`, `_download_certificate`,
+`_download_signed_document`. `_get_my_requests` gains an optional `status` filter.
+`_sign` is marked legacy in its description — prefer `chaindoc_contracts_business_sign`
+for new code.
+
+**Contracts (extended):** adds `_create_empty`, `_create_minimal`, `_import`,
+`_get_stats`, `_update`, `_delete`, `_attach_document`, `_setup_recurring`,
+`_resend_recurring_approval`, `_cancel_recurring_approval`, `_list_signing_requests`,
+`_get_signing_request`, `_resend_signing_request`, `_cancel_signing_request`,
+`_business_sign`, the `_termination_*` sub-module (6 tools), the
+`_payment_terms_*` sub-module (4 tools), and the `_agreements_*` sub-module (5 tools).
+
+**Templates (full lifecycle):** adds `_list`, `_get`, `_get_versions`, `_create`,
+`_update`, `_publish`, `_archive`, `_restore`, `_delete`, `_preview_pdf`,
+`_preview_html`, `_preview_unsaved_pdf` (alongside the existing `_create_document`,
+`_send_for_signing`, `_create_contract`).
+
+**Invoices (extended):** adds `_list_all`, `_update`, `_cancel`, `_download_pdf`.
+
+**Transactions (extended):** adds `_get_payment_mix` and `_get_fee_estimate`.
+
+**Webhooks:** adds `_parse` (unverified). Use `_verify` for any cross-network delivery.
+
 ## Resources
 
 | URI | Description |
@@ -257,11 +290,16 @@ server exposes is a **verifier**:
 | `chaindoc://contracts/{id}` | Contract details |
 | `chaindoc://contracts/{id}/status` | Lightweight contract status |
 
+Added in v0.2.0: `chaindoc://templates`, `chaindoc://templates/{id}`,
+`chaindoc://invoices`, `chaindoc://contracts/{id}/stats`,
+`chaindoc://contracts/{id}/termination`.
+
 ## Prompts
 
 `summarize_document`, `prepare_signature_request`, `audit_open_signers`,
 `verify_document_chain_of_custody`, `set_up_contract_with_billing`,
-`verify_incoming_webhook`.
+`verify_incoming_webhook`, `manage_contract_termination`,
+`author_and_publish_template`, `bill_recurring_on_imported_contract`.
 
 ## Develop
 
@@ -273,6 +311,19 @@ npm run dev:stdio       # local stdio with tsx
 npm run inspect         # MCP Inspector smoke test
 npm run dev:http        # local HTTP at :8787
 ```
+
+### Manual smoke list (after `npm run inspect`)
+
+- Contract lifecycle: `contracts.create_minimal` → `attach_document` →
+  `payment_terms.create` → `send` → `business_sign` → `invoices.create` →
+  `terminate`.
+- Template lifecycle: `templates.create` → `preview_pdf` →
+  `preview_html` → `publish` → `create_document` → verify with
+  `documents.wait_for_verification`.
+- Termination: mutual-approval flow end-to-end (initiate from one key,
+  approve from another).
+- Downloads: `documents.download` and `invoices.download_pdf` on both
+  transports (stdio → disk path; HTTP → inline base64).
 
 ## Security
 
