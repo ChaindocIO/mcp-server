@@ -45,7 +45,7 @@ const PaymentTermDeleteSchema = z.object({
 
 export const contractsPaymentTermsList = defineTool({
   name: "chaindoc_contracts_payment_terms_list",
-  description: "List all payment terms on a contract.",
+  description: "List all payment terms and schedules configured for a contract.",
   inputSchema: z.object({ contractId: z.string().uuid() }),
   handler: (args, { client }) =>
     client.run("chaindoc_contracts_payment_terms_list", (sdk) =>

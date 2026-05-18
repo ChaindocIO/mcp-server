@@ -179,7 +179,7 @@ export const templatesPublish = defineTool({
 
 export const templatesArchive = defineTool({
   name: "chaindoc_templates_archive",
-  description: "Move a template to ARCHIVED.",
+  description: "Move a template to ARCHIVED status to hide it from active use.",
   inputSchema: TemplateIdSchema,
   handler: (args, { client }) =>
     client.run("chaindoc_templates_archive", (sdk) => sdk.templates.archive(args.templateId)),
@@ -195,7 +195,7 @@ export const templatesRestore = defineTool({
 
 export const templatesDelete = defineTool({
   name: "chaindoc_templates_delete",
-  description: "Delete a template.",
+  description: "Permanently delete a template from the catalog.",
   inputSchema: TemplateIdSchema,
   handler: (args, { client }) =>
     client.run("chaindoc_templates_delete", (sdk) => sdk.templates.delete(args.templateId)),

@@ -250,7 +250,7 @@ export const documentsGetActivity = defineTool({
 
 export const documentsGetDownloads = defineTool({
   name: "chaindoc_documents_get_downloads",
-  description: "Download log for the document.",
+  description: "Retrieve the download history and activity log for a document.",
   inputSchema: DocIdSchema,
   handler: (args, { client }) =>
     client.run("chaindoc_documents_get_downloads", (sdk) => sdk.documents.getDownloads(args.documentId)),

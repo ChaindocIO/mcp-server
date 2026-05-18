@@ -67,7 +67,7 @@ export const contractsAgreementsList = defineTool({
 
 export const contractsAgreementsGet = defineTool({
   name: "chaindoc_contracts_agreements_get",
-  description: "Fetch one amendment by id.",
+  description: "Retrieve a contract amendment or agreement by its identifier.",
   inputSchema: AgreementIdSchema,
   handler: (args, { client }) =>
     client.run("chaindoc_contracts_agreements_get", (sdk) =>
