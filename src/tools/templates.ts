@@ -3,10 +3,206 @@ import { defineTool, type ToolDefinition } from "./types.js";
 
 /**
  * Templates API
- *   POST /api/v1/templates/:templateId/documents
- *   POST /api/v1/templates/:templateId/signature-requests
- *   POST /api/v1/templates/:templateId/contracts
+ *   CRUD:      GET/POST/PATCH /api/v1/templates
+ *   Lifecycle: publish/archive/restore/delete
+ *   Render:    POST /api/v1/templates/:templateId/documents
+ *              POST /api/v1/templates/:templateId/signature-requests
+ *              POST /api/v1/templates/:templateId/contracts
  */
+
+// ---------------------------------------------------------------------------
+// CRUD + lifecycle schemas
+// ---------------------------------------------------------------------------
+
+const TemplateCategoryEnum = z.enum([
+  "contract", "agreement", "invoice", "nda", "proposal", "letter", "other",
+]);
+const TemplateStatusEnum = z.enum(["draft", "published", "archived"]);
+const TemplateVariableDataTypeEnum = z.enum(["text", "long_text", "date", "number", "boolean"]);
+const TemplateVariableScopeEnum = z.enum(["document", "signer"]);
+
+const TemplateVariableInputSchema = z.object({
+  key: z.string().min(1),
+  label: z.string(),
+  dataType: TemplateVariableDataTypeEnum,
+  scope: TemplateVariableScopeEnum.optional(),
+  signerKey: z.string().optional(),
+  systemKey: z.string().optional(),
+  required: z.boolean(),
+  defaultValue: z.union([z.string(), z.number(), z.boolean()]).optional(),
+  description: z.string().optional(),
+});
+
+// Pass-through for richly typed SDK shapes we don't need to fully model.
+const PassThroughObject = z.record(z.unknown());
+const PassThroughArray = z.array(z.record(z.unknown()));
+
+const TemplateListInputSchema = z.object({
+  page: z.number().int().positive().default(1),
+  limit: z.number().int().positive().max(100).default(20),
+  status: TemplateStatusEnum.optional(),
+  search: z.string().optional(),
+});
+
+const TemplateIdSchema = z.object({ templateId: z.string().uuid() });
+
+const TemplateCreateSchema = z.object({
+  name: z.string().min(1).max(200),
+  description: z.string().max(2000).optional(),
+  category: TemplateCategoryEnum,
+  contentJson: PassThroughObject.describe("Tiptap document JSON; passed through as-is."),
+  variablesSchema: z.array(TemplateVariableInputSchema).optional(),
+  signatureRequirements: PassThroughArray.optional(),
+  signerSlots: PassThroughArray.optional(),
+  renderConfig: PassThroughObject.optional(),
+  meta: z.array(z.object({ key: z.string(), value: z.string() })).optional(),
+});
+
+const TemplateUpdateSchema = z.object({
+  templateId: z.string().uuid(),
+  name: z.string().min(1).max(200).optional(),
+  description: z.string().max(2000).optional(),
+  category: TemplateCategoryEnum.optional(),
+  contentJson: PassThroughObject.optional(),
+  variablesSchema: z.array(TemplateVariableInputSchema).optional(),
+  signatureRequirements: PassThroughArray.optional(),
+  signerSlots: PassThroughArray.optional(),
+  renderConfig: PassThroughObject.optional(),
+});
+
+const TemplatePublishSchema = z.object({
+  templateId: z.string().uuid(),
+  changelog: z.string().max(2000).optional(),
+});
+
+// ---------------------------------------------------------------------------
+// CRUD + lifecycle tool exports
+// ---------------------------------------------------------------------------
+
+export const templatesList = defineTool({
+  name: "chaindoc_templates_list",
+  description: "Paginated list of owned templates with optional status and search filters.",
+  inputSchema: TemplateListInputSchema,
+  handler: (args, { client }) =>
+    client.run("chaindoc_templates_list", (sdk) => sdk.templates.list(args)),
+});
+
+export const templatesGet = defineTool({
+  name: "chaindoc_templates_get",
+  description:
+    "Fetch one template's detail: current + last-published version, variablesSchema, signer slots.",
+  inputSchema: TemplateIdSchema,
+  handler: (args, { client }) =>
+    client.run("chaindoc_templates_get", (sdk) => sdk.templates.get(args.templateId)),
+});
+
+export const templatesGetVersions = defineTool({
+  name: "chaindoc_templates_get_versions",
+  description: "Version history for a template. Each version carries its own variablesSchema.",
+  inputSchema: TemplateIdSchema,
+  handler: (args, { client }) =>
+    client.run("chaindoc_templates_get_versions", (sdk) => sdk.templates.getVersions(args.templateId)),
+});
+
+export const templatesCreate = defineTool({
+  name: "chaindoc_templates_create",
+  description:
+    "Create a template (DRAFT). Provide name, category, contentJson (Tiptap document JSON), and optional " +
+    "variablesSchema / signerSlots / signatureRequirements.",
+  inputSchema: TemplateCreateSchema,
+  handler: (args, { client }) =>
+    client.run("chaindoc_templates_create", (sdk) => {
+      const payload: Parameters<typeof sdk.templates.create>[0] = {
+        name: args.name,
+        category: args.category,
+        contentJson: args.contentJson,
+      };
+      if (args.description !== undefined) payload.description = args.description;
+      if (args.variablesSchema !== undefined) payload.variablesSchema = args.variablesSchema;
+      if (args.signatureRequirements !== undefined)
+        payload.signatureRequirements =
+          args.signatureRequirements as unknown as Parameters<typeof sdk.templates.create>[0]["signatureRequirements"];
+      if (args.signerSlots !== undefined)
+        payload.signerSlots =
+          args.signerSlots as unknown as Parameters<typeof sdk.templates.create>[0]["signerSlots"];
+      if (args.renderConfig !== undefined)
+        payload.renderConfig =
+          args.renderConfig as Parameters<typeof sdk.templates.create>[0]["renderConfig"];
+      if (args.meta !== undefined) payload.meta = args.meta;
+      return sdk.templates.create(payload);
+    }),
+});
+
+export const templatesUpdate = defineTool({
+  name: "chaindoc_templates_update",
+  description:
+    "Partial update. Editing a PUBLISHED template forks a new draft version while the last-published " +
+    "version remains the renderable one until the next publish.",
+  inputSchema: TemplateUpdateSchema,
+  handler: (args, { client }) => {
+    const { templateId, ...rest } = args;
+    return client.run("chaindoc_templates_update", (sdk) => {
+      const patch: Parameters<typeof sdk.templates.update>[1] = {};
+      if (rest.name !== undefined) patch.name = rest.name;
+      if (rest.description !== undefined) patch.description = rest.description;
+      if (rest.category !== undefined) patch.category = rest.category;
+      if (rest.contentJson !== undefined) patch.contentJson = rest.contentJson;
+      if (rest.variablesSchema !== undefined) patch.variablesSchema = rest.variablesSchema;
+      if (rest.signatureRequirements !== undefined)
+        patch.signatureRequirements =
+          rest.signatureRequirements as unknown as Parameters<typeof sdk.templates.update>[1]["signatureRequirements"];
+      if (rest.signerSlots !== undefined)
+        patch.signerSlots =
+          rest.signerSlots as unknown as Parameters<typeof sdk.templates.update>[1]["signerSlots"];
+      if (rest.renderConfig !== undefined)
+        patch.renderConfig =
+          rest.renderConfig as Parameters<typeof sdk.templates.update>[1]["renderConfig"];
+      return sdk.templates.update(templateId, patch);
+    });
+  },
+});
+
+export const templatesPublish = defineTool({
+  name: "chaindoc_templates_publish",
+  description:
+    "Publish a DRAFT template (or its current draft version). Archived templates must be restored first. " +
+    "Optional `changelog` is recorded against the new published version.",
+  inputSchema: TemplatePublishSchema,
+  handler: (args, { client }) => {
+    const payload = args.changelog !== undefined ? { changelog: args.changelog } : undefined;
+    return client.run("chaindoc_templates_publish", (sdk) =>
+      sdk.templates.publish(args.templateId, payload),
+    );
+  },
+});
+
+export const templatesArchive = defineTool({
+  name: "chaindoc_templates_archive",
+  description: "Move a template to ARCHIVED.",
+  inputSchema: TemplateIdSchema,
+  handler: (args, { client }) =>
+    client.run("chaindoc_templates_archive", (sdk) => sdk.templates.archive(args.templateId)),
+});
+
+export const templatesRestore = defineTool({
+  name: "chaindoc_templates_restore",
+  description: "Restore an ARCHIVED template back to DRAFT.",
+  inputSchema: TemplateIdSchema,
+  handler: (args, { client }) =>
+    client.run("chaindoc_templates_restore", (sdk) => sdk.templates.restore(args.templateId)),
+});
+
+export const templatesDelete = defineTool({
+  name: "chaindoc_templates_delete",
+  description: "Delete a template.",
+  inputSchema: TemplateIdSchema,
+  handler: (args, { client }) =>
+    client.run("chaindoc_templates_delete", (sdk) => sdk.templates.delete(args.templateId)),
+});
+
+// ---------------------------------------------------------------------------
+// Render-style schemas (existing)
+// ---------------------------------------------------------------------------
 
 const VariablesSchema = z.record(z.union([z.string(), z.number(), z.boolean()]));
 
@@ -193,6 +389,15 @@ export const templatesCreateContract = defineTool({
 });
 
 export const templatesTools: ToolDefinition<unknown>[] = [
+  templatesList as ToolDefinition<unknown>,
+  templatesGet as ToolDefinition<unknown>,
+  templatesGetVersions as ToolDefinition<unknown>,
+  templatesCreate as ToolDefinition<unknown>,
+  templatesUpdate as ToolDefinition<unknown>,
+  templatesPublish as ToolDefinition<unknown>,
+  templatesArchive as ToolDefinition<unknown>,
+  templatesRestore as ToolDefinition<unknown>,
+  templatesDelete as ToolDefinition<unknown>,
   templatesCreateDocument as ToolDefinition<unknown>,
   templatesSendForSigning as ToolDefinition<unknown>,
   templatesCreateContract as ToolDefinition<unknown>,
