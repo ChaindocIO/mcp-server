@@ -3,6 +3,7 @@ import {
   templatesList, templatesGet, templatesGetVersions,
   templatesCreate, templatesUpdate, templatesPublish,
   templatesArchive, templatesRestore, templatesDelete,
+  templatesPreviewPdf, templatesPreviewHtml, templatesPreviewUnsavedPdf,
 } from "../../src/tools/templates.js";
 import { fakeClient, fakeDownloads, fakeLogger } from "./_fakes.js";
 
@@ -116,5 +117,95 @@ describe("templates CRUD + lifecycle", () => {
     const args = templatesDelete.inputSchema.parse({ templateId: TID });
     await templatesDelete.handler(args, ctx(tplClient({ delete: del })));
     expect(del).toHaveBeenCalledWith(TID);
+  });
+});
+
+describe("templates previews", () => {
+  it("preview_pdf routes through adapter", async () => {
+    const previewPdf = vi.fn().mockResolvedValue({
+      data: new TextEncoder().encode("pdf").buffer,
+      contentType: "application/pdf",
+    });
+    const client = fakeClient({
+      templates: {
+        list: vi.fn(), get: vi.fn(), getVersions: vi.fn(),
+        create: vi.fn(), update: vi.fn(), publish: vi.fn(),
+        archive: vi.fn(), restore: vi.fn(), delete: vi.fn(),
+        previewPdf, previewHtml: vi.fn(), previewUnsavedPdf: vi.fn(),
+        createDocument: vi.fn(), sendForSigning: vi.fn(), createContract: vi.fn(),
+      } as never,
+    });
+    const args = templatesPreviewPdf.inputSchema.parse({
+      templateId: TID, variables: { name: "Acme" },
+    });
+    const r = await templatesPreviewPdf.handler(args, {
+      client, logger: fakeLogger(), downloads: fakeDownloads({ mode: "inline" }),
+    });
+    expect(previewPdf).toHaveBeenCalledWith(TID, { variables: { name: "Acme" } });
+    expect((r as { kind: string }).kind).toBe("inline");
+  });
+
+  it("preview_pdf passes undefined when no variables", async () => {
+    const previewPdf = vi.fn().mockResolvedValue({
+      data: new TextEncoder().encode("p").buffer, contentType: "application/pdf",
+    });
+    const client = fakeClient({
+      templates: {
+        list: vi.fn(), get: vi.fn(), getVersions: vi.fn(),
+        create: vi.fn(), update: vi.fn(), publish: vi.fn(),
+        archive: vi.fn(), restore: vi.fn(), delete: vi.fn(),
+        previewPdf, previewHtml: vi.fn(), previewUnsavedPdf: vi.fn(),
+        createDocument: vi.fn(), sendForSigning: vi.fn(), createContract: vi.fn(),
+      } as never,
+    });
+    const args = templatesPreviewPdf.inputSchema.parse({ templateId: TID });
+    await templatesPreviewPdf.handler(args, {
+      client, logger: fakeLogger(), downloads: fakeDownloads({ mode: "inline" }),
+    });
+    expect(previewPdf).toHaveBeenCalledWith(TID, undefined);
+  });
+
+  it("preview_html returns { html } as-is (not adapter)", async () => {
+    const previewHtml = vi.fn().mockResolvedValue({ success: true, html: "<p>Hi</p>" });
+    const client = fakeClient({
+      templates: {
+        list: vi.fn(), get: vi.fn(), getVersions: vi.fn(),
+        create: vi.fn(), update: vi.fn(), publish: vi.fn(),
+        archive: vi.fn(), restore: vi.fn(), delete: vi.fn(),
+        previewPdf: vi.fn(), previewHtml, previewUnsavedPdf: vi.fn(),
+        createDocument: vi.fn(), sendForSigning: vi.fn(), createContract: vi.fn(),
+      } as never,
+    });
+    const args = templatesPreviewHtml.inputSchema.parse({ templateId: TID });
+    const r = await templatesPreviewHtml.handler(args, { client, logger: fakeLogger(), downloads: fakeDownloads() });
+    expect(previewHtml).toHaveBeenCalledWith(TID, undefined);
+    expect((r as { html: string }).html).toBe("<p>Hi</p>");
+  });
+
+  it("preview_unsaved_pdf forwards contentJson and routes through adapter", async () => {
+    const previewUnsavedPdf = vi.fn().mockResolvedValue({
+      data: new TextEncoder().encode("u").buffer, contentType: "application/pdf",
+    });
+    const client = fakeClient({
+      templates: {
+        list: vi.fn(), get: vi.fn(), getVersions: vi.fn(),
+        create: vi.fn(), update: vi.fn(), publish: vi.fn(),
+        archive: vi.fn(), restore: vi.fn(), delete: vi.fn(),
+        previewPdf: vi.fn(), previewHtml: vi.fn(), previewUnsavedPdf,
+        createDocument: vi.fn(), sendForSigning: vi.fn(), createContract: vi.fn(),
+      } as never,
+    });
+    const args = templatesPreviewUnsavedPdf.inputSchema.parse({
+      contentJson: { type: "doc", content: [] },
+      variables: { x: 1 },
+    });
+    const r = await templatesPreviewUnsavedPdf.handler(args, {
+      client, logger: fakeLogger(), downloads: fakeDownloads({ mode: "inline" }),
+    });
+    expect(previewUnsavedPdf).toHaveBeenCalledWith({
+      contentJson: { type: "doc", content: [] },
+      variables: { x: 1 },
+    });
+    expect((r as { kind: string }).kind).toBe("inline");
   });
 });

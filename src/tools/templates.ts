@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { defineTool, type ToolDefinition } from "./types.js";
+import { deliverDownload } from "../core/downloads.js";
 
 /**
  * Templates API
@@ -388,6 +389,71 @@ export const templatesCreateContract = defineTool({
   },
 });
 
+// ---------------------------------------------------------------------------
+// Preview schemas and tools
+// ---------------------------------------------------------------------------
+
+const PreviewVariablesSchema = z.record(z.union([z.string(), z.number(), z.boolean()]));
+
+const PreviewSavedSchema = z.object({
+  templateId: z.string().uuid(),
+  variables: PreviewVariablesSchema.optional(),
+});
+
+const PreviewUnsavedSchema = z.object({
+  contentJson: PassThroughObject,
+  renderConfig: PassThroughObject.optional(),
+  variables: PreviewVariablesSchema.optional(),
+});
+
+export const templatesPreviewPdf = defineTool({
+  name: "chaindoc_templates_preview_pdf",
+  description:
+    "Render a saved template into a preview PDF. Rate limit: 5/60s per client IP. " +
+    "On stdio → disk path; on HTTP → inline base64 up to CHAINDOC_INLINE_DOWNLOAD_MAX_BYTES.",
+  inputSchema: PreviewSavedSchema,
+  handler: (args, { client, downloads }) =>
+    client.run("chaindoc_templates_preview_pdf", async (sdk) =>
+      deliverDownload(
+        downloads,
+        await sdk.templates.previewPdf(
+          args.templateId,
+          args.variables !== undefined ? { variables: args.variables } : undefined,
+        ),
+        { tool: "chaindoc_templates_preview_pdf" },
+      ),
+    ),
+});
+
+export const templatesPreviewHtml = defineTool({
+  name: "chaindoc_templates_preview_html",
+  description:
+    "Render a saved template into preview HTML; returns { html }. Rate limit: 5/60s per client IP.",
+  inputSchema: PreviewSavedSchema,
+  handler: (args, { client }) =>
+    client.run("chaindoc_templates_preview_html", (sdk) =>
+      sdk.templates.previewHtml(
+        args.templateId,
+        args.variables !== undefined ? { variables: args.variables } : undefined,
+      ),
+    ),
+});
+
+export const templatesPreviewUnsavedPdf = defineTool({
+  name: "chaindoc_templates_preview_unsaved_pdf",
+  description:
+    "Render ad-hoc Tiptap contentJson into a preview PDF without saving a template. Rate limit: 5/60s.",
+  inputSchema: PreviewUnsavedSchema,
+  handler: (args, { client, downloads }) =>
+    client.run("chaindoc_templates_preview_unsaved_pdf", async (sdk) =>
+      deliverDownload(
+        downloads,
+        await sdk.templates.previewUnsavedPdf(args),
+        { tool: "chaindoc_templates_preview_unsaved_pdf" },
+      ),
+    ),
+});
+
 export const templatesTools: ToolDefinition<unknown>[] = [
   templatesList as ToolDefinition<unknown>,
   templatesGet as ToolDefinition<unknown>,
@@ -401,4 +467,7 @@ export const templatesTools: ToolDefinition<unknown>[] = [
   templatesCreateDocument as ToolDefinition<unknown>,
   templatesSendForSigning as ToolDefinition<unknown>,
   templatesCreateContract as ToolDefinition<unknown>,
+  templatesPreviewPdf as ToolDefinition<unknown>,
+  templatesPreviewHtml as ToolDefinition<unknown>,
+  templatesPreviewUnsavedPdf as ToolDefinition<unknown>,
 ];
