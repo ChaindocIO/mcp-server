@@ -70,6 +70,14 @@ const PaginationSchema = z.object({
   pageSize: z.number().int().positive().max(100).default(10),
 });
 
+const SignatureRequestStatusFilter = z.enum(["all", "pending", "completed", "declined"]);
+
+const GetMyRequestsSchema = z.object({
+  pageNumber: z.number().int().positive().default(1),
+  pageSize: z.number().int().positive().max(100).default(10),
+  status: SignatureRequestStatusFilter.optional(),
+});
+
 export const signaturesCreateRequest = defineTool({
   name: "chaindoc_signatures_create_request",
   description:
@@ -107,7 +115,10 @@ export const signaturesGetRequestStatus = defineTool({
 export const signaturesSign = defineTool({
   name: "chaindoc_signatures_sign",
   description:
-    "Sign a request on behalf of the API key owner — only valid when the key owner is one of the signers.",
+    "LEGACY. Sign a request on behalf of the API key owner using a numeric signatureId. " +
+    "New code should prefer chaindoc_contracts_business_sign (which takes a saved-signature hash from " +
+    "chaindoc_signatures_get_signatures / chaindoc_signatures_create_signature). Kept callable for " +
+    "callers that already hold a numeric signatureId.",
   inputSchema: SignSchema,
   handler: (args, { client }) =>
     client.run("chaindoc_signatures_sign", (sdk) => {
@@ -125,12 +136,18 @@ export const signaturesGetMyRequests = defineTool({
   name: "chaindoc_signatures_get_my_requests",
   description:
     "Paginated list of signature requests for the authenticated key owner. " +
+    "Optional `status` filter: 'all' | 'pending' | 'completed' | 'declined'. " +
     "Response includes totals: total, totalPending, totalCompleted, totalExpired.",
-  inputSchema: PaginationSchema,
+  inputSchema: GetMyRequestsSchema,
   handler: (args, { client }) =>
-    client.run("chaindoc_signatures_get_my_requests", (sdk) =>
-      sdk.signatures.getMyRequests(args),
-    ),
+    client.run("chaindoc_signatures_get_my_requests", (sdk) => {
+      const payload: { pageNumber: number; pageSize: number; status?: "all" | "pending" | "completed" | "declined" } = {
+        pageNumber: args.pageNumber ?? 1,
+        pageSize: args.pageSize ?? 10,
+      };
+      if (args.status !== undefined) payload.status = args.status;
+      return sdk.signatures.getMyRequests(payload);
+    }),
 });
 
 export const signaturesGetSignatures = defineTool({
