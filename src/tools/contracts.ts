@@ -397,6 +397,74 @@ export const contractsCancelRecurringApproval = defineTool({
     ),
 });
 
+const ContractRequestIdsSchema = z.object({
+  contractId: z.string().uuid(),
+  requestId: z.string().uuid(),
+});
+
+const BusinessSignSchema = z.object({
+  contractId: z.string().uuid(),
+  requestId: z.string().uuid(),
+  signatureHash: z.string().min(1).describe("Hash from chaindoc_signatures_get_signatures / _create_signature."),
+  meta: z.array(z.object({ key: z.string(), value: z.string() })).optional(),
+});
+
+export const contractsListSigningRequests = defineTool({
+  name: "chaindoc_contracts_list_signing_requests",
+  description: "Summaries of all signing requests on a contract (no per-signer detail).",
+  inputSchema: z.object({ contractId: z.string().uuid() }),
+  handler: (args, { client }) =>
+    client.run("chaindoc_contracts_list_signing_requests", (sdk) =>
+      sdk.contracts.listSigningRequests(args.contractId),
+    ),
+});
+
+export const contractsGetSigningRequest = defineTool({
+  name: "chaindoc_contracts_get_signing_request",
+  description: "One signing request with full per-signer detail.",
+  inputSchema: ContractRequestIdsSchema,
+  handler: (args, { client }) =>
+    client.run("chaindoc_contracts_get_signing_request", (sdk) =>
+      sdk.contracts.getSigningRequest(args.contractId, args.requestId),
+    ),
+});
+
+export const contractsResendSigningRequest = defineTool({
+  name: "chaindoc_contracts_resend_signing_request",
+  description: "Resend the signing invitation email for a contract signing request.",
+  inputSchema: ContractRequestIdsSchema,
+  handler: (args, { client }) =>
+    client.run("chaindoc_contracts_resend_signing_request", (sdk) =>
+      sdk.contracts.resendSigningRequest(args.contractId, args.requestId),
+    ),
+});
+
+export const contractsCancelSigningRequest = defineTool({
+  name: "chaindoc_contracts_cancel_signing_request",
+  description: "Cancel a pending contract signing request. Fails if any party has already signed.",
+  inputSchema: ContractRequestIdsSchema,
+  handler: (args, { client }) =>
+    client.run("chaindoc_contracts_cancel_signing_request", (sdk) =>
+      sdk.contracts.cancelSigningRequest(args.contractId, args.requestId),
+    ),
+});
+
+export const contractsBusinessSign = defineTool({
+  name: "chaindoc_contracts_business_sign",
+  description:
+    "Sign the business side of a contract signing request using a saved-signature hash. " +
+    "Get a hash via chaindoc_signatures_get_signatures or create one via chaindoc_signatures_create_signature.",
+  inputSchema: BusinessSignSchema,
+  handler: (args, { client }) =>
+    client.run("chaindoc_contracts_business_sign", (sdk) => {
+      const payload: { signatureHash: string; meta?: Array<{ key: string; value: string }> } = {
+        signatureHash: args.signatureHash,
+      };
+      if (args.meta !== undefined) payload.meta = args.meta;
+      return sdk.contracts.businessSign(args.contractId, args.requestId, payload);
+    }),
+});
+
 export const contractsTools: ToolDefinition<unknown>[] = [
   contractsCreate as ToolDefinition<unknown>,
   contractsList as ToolDefinition<unknown>,
@@ -417,4 +485,9 @@ export const contractsTools: ToolDefinition<unknown>[] = [
   contractsSetupRecurring as ToolDefinition<unknown>,
   contractsResendRecurringApproval as ToolDefinition<unknown>,
   contractsCancelRecurringApproval as ToolDefinition<unknown>,
+  contractsListSigningRequests as ToolDefinition<unknown>,
+  contractsGetSigningRequest as ToolDefinition<unknown>,
+  contractsResendSigningRequest as ToolDefinition<unknown>,
+  contractsCancelSigningRequest as ToolDefinition<unknown>,
+  contractsBusinessSign as ToolDefinition<unknown>,
 ];

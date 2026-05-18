@@ -4,11 +4,15 @@ import {
   contractsUpdate, contractsDelete, contractsAttachDocument,
   contractsGetStats, contractsSetupRecurring,
   contractsResendRecurringApproval, contractsCancelRecurringApproval,
+  contractsListSigningRequests, contractsGetSigningRequest,
+  contractsResendSigningRequest, contractsCancelSigningRequest,
+  contractsBusinessSign,
 } from "../../src/tools/contracts.js";
 import { fakeClient, fakeDownloads, fakeLogger } from "./_fakes.js";
 
 const CID = "00000000-0000-0000-0000-000000000001";
 const DID = "00000000-0000-0000-0000-000000000002";
+const SRID = "00000000-0000-0000-0000-000000000003";
 
 function emptyContractsSdk() {
   return {
@@ -155,5 +159,57 @@ describe("contracts stats + recurring approval", () => {
     const args = contractsCancelRecurringApproval.inputSchema.parse({ contractId: CID });
     await contractsCancelRecurringApproval.handler(args, { client, logger: fakeLogger(), downloads: fakeDownloads() });
     expect(cancel).toHaveBeenCalledWith(CID);
+  });
+});
+
+describe("contracts signing requests + business_sign", () => {
+  it("list_signing_requests forwards contractId", async () => {
+    const fn = vi.fn().mockResolvedValue({ signingRequests: [] });
+    const client = fakeClient({ contracts: { ...emptyContractsSdk(), listSigningRequests: fn } as never });
+    const args = contractsListSigningRequests.inputSchema.parse({ contractId: CID });
+    await contractsListSigningRequests.handler(args, { client, logger: fakeLogger(), downloads: fakeDownloads() });
+    expect(fn).toHaveBeenCalledWith(CID);
+  });
+
+  it("get_signing_request forwards both ids", async () => {
+    const fn = vi.fn().mockResolvedValue({ signingRequest: {} });
+    const client = fakeClient({ contracts: { ...emptyContractsSdk(), getSigningRequest: fn } as never });
+    const args = contractsGetSigningRequest.inputSchema.parse({ contractId: CID, requestId: SRID });
+    await contractsGetSigningRequest.handler(args, { client, logger: fakeLogger(), downloads: fakeDownloads() });
+    expect(fn).toHaveBeenCalledWith(CID, SRID);
+  });
+
+  it("resend_signing_request forwards both ids", async () => {
+    const fn = vi.fn().mockResolvedValue({ ok: true });
+    const client = fakeClient({ contracts: { ...emptyContractsSdk(), resendSigningRequest: fn } as never });
+    const args = contractsResendSigningRequest.inputSchema.parse({ contractId: CID, requestId: SRID });
+    await contractsResendSigningRequest.handler(args, { client, logger: fakeLogger(), downloads: fakeDownloads() });
+    expect(fn).toHaveBeenCalledWith(CID, SRID);
+  });
+
+  it("cancel_signing_request forwards both ids", async () => {
+    const fn = vi.fn().mockResolvedValue({ ok: true });
+    const client = fakeClient({ contracts: { ...emptyContractsSdk(), cancelSigningRequest: fn } as never });
+    const args = contractsCancelSigningRequest.inputSchema.parse({ contractId: CID, requestId: SRID });
+    await contractsCancelSigningRequest.handler(args, { client, logger: fakeLogger(), downloads: fakeDownloads() });
+    expect(fn).toHaveBeenCalledWith(CID, SRID);
+  });
+
+  it("business_sign forwards signatureHash", async () => {
+    const fn = vi.fn().mockResolvedValue({ success: true });
+    const client = fakeClient({ contracts: { ...emptyContractsSdk(), businessSign: fn } as never });
+    const args = contractsBusinessSign.inputSchema.parse({
+      contractId: CID,
+      requestId: SRID,
+      signatureHash: "0xabc123",
+    });
+    await contractsBusinessSign.handler(args, { client, logger: fakeLogger(), downloads: fakeDownloads() });
+    expect(fn).toHaveBeenCalledWith(CID, SRID, { signatureHash: "0xabc123" });
+  });
+
+  it("business_sign rejects empty signatureHash", () => {
+    expect(() => contractsBusinessSign.inputSchema.parse({
+      contractId: CID, requestId: SRID, signatureHash: "",
+    })).toThrow();
   });
 });
