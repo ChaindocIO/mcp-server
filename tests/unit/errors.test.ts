@@ -27,4 +27,22 @@ describe("toChaindocMcpError", () => {
     expect(toChaindocMcpError(new Error("boom")).code).toBe("internal_error");
     expect(toChaindocMcpError("not even an error").code).toBe("internal_error");
   });
+
+  it("maps 413 to payload_too_large", () => {
+    expect(toChaindocMcpError({ status: 413, code: "payload_too_large", message: "too big" }))
+      .toMatchObject({ code: "payload_too_large", httpStatus: 413 });
+  });
+
+  it("lifts validation-array response.message into `validation`", () => {
+    const err = toChaindocMcpError({
+      status: 400,
+      message: "Request failed with status 400",
+      response: { message: [{ property: "documentId", constraints: { isNotEmpty: "documentId should not be empty" } }] },
+    });
+    expect(err.code).toBe("invalid_argument");
+    expect(err.validation).toEqual([
+      { property: "documentId", constraints: { isNotEmpty: "documentId should not be empty" } },
+    ]);
+    expect(err.details).toBeUndefined();
+  });
 });

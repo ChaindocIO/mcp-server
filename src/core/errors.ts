@@ -8,6 +8,8 @@ export interface ChaindocMcpError {
   code: ChaindocErrorCode;
   message: string;
   httpStatus?: number;
+  validation?: unknown;
+  hint?: string;
   retryAfter?: number;
   requestId?: string;
   details?: unknown;
@@ -23,7 +25,14 @@ export type ChaindocErrorCode =
   | "rate_limited"
   | "upstream_error"
   | "not_implemented"
-  | "internal_error";
+  | "internal_error"
+  | "payload_too_large"
+  // state-machine codes (set by the pattern pass in Task 6)
+  | "wrong_state"
+  | "not_verified"
+  | "wrong_party"
+  | "stripe_not_ready"
+  | "document_not_public";
 
 const STATUS_TO_CODE: Record<number, ChaindocErrorCode> = {
   400: "invalid_argument",
@@ -31,6 +40,7 @@ const STATUS_TO_CODE: Record<number, ChaindocErrorCode> = {
   403: "forbidden",
   404: "not_found",
   409: "conflict",
+  413: "payload_too_large",
   422: "unprocessable",
   429: "rate_limited",
 };
@@ -43,46 +53,47 @@ interface SdkErrorShape {
   requestId?: string;
   retryAfter?: number;
   body?: unknown;
+  response?: { message?: unknown };
 }
 
 /**
  * Map an unknown thrown value to a structured ChaindocMcpError.
- *
- * Recognizes:
- *   - errors with .status / .statusCode (Chaindoc SDK + most HTTP libs)
- *   - NotImplementedError (this package)
- *   - plain Error (fallback to internal_error)
  */
 export function toChaindocMcpError(err: unknown): ChaindocMcpError {
   if (err instanceof NotImplementedError) {
-    return {
-      code: "not_implemented",
-      message: err.message,
-    };
+    return { code: "not_implemented", message: err.message };
   }
 
   if (typeof err === "object" && err !== null) {
     const e = err as SdkErrorShape;
     const status = e.status ?? e.statusCode;
     if (typeof status === "number") {
-      const code: ChaindocErrorCode =
-        STATUS_TO_CODE[status] ?? (status >= 500 ? "upstream_error" : "internal_error");
-      const result: ChaindocMcpError = {
-        code,
+      // Honor an explicit `code` from the source (e.g. download adapter's `payload_too_large`).
+      const baseCode =
+        (typeof e.code === "string" && STATUS_TO_CODE[status] !== undefined
+          ? (e.code as ChaindocErrorCode)
+          : undefined) ??
+        STATUS_TO_CODE[status] ??
+        (status >= 500 ? "upstream_error" : "internal_error");
+      const out: ChaindocMcpError = {
+        code: baseCode,
         message: e.message ?? `Chaindoc API returned ${status}`,
         httpStatus: status,
       };
-      if (typeof e.requestId === "string") result.requestId = e.requestId;
-      if (typeof e.retryAfter === "number") result.retryAfter = e.retryAfter;
-      if (e.body !== undefined) result.details = e.body;
-      return result;
+      if (typeof e.requestId === "string") out.requestId = e.requestId;
+      if (typeof e.retryAfter === "number") out.retryAfter = e.retryAfter;
+      // Lift validation-array messages out of details into `validation`.
+      const responseMessage = e.response?.message;
+      if (Array.isArray(responseMessage)) {
+        out.validation = responseMessage;
+      } else if (e.body !== undefined) {
+        out.details = e.body;
+      }
+      return out;
     }
   }
 
-  if (err instanceof Error) {
-    return { code: "internal_error", message: err.message };
-  }
-
+  if (err instanceof Error) return { code: "internal_error", message: err.message };
   return { code: "internal_error", message: String(err) };
 }
 
