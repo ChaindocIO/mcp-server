@@ -1,3 +1,5 @@
+import { matchErrorPattern } from "./error-patterns.js";
+
 /**
  * Normalized error envelope returned to MCP clients.
  *
@@ -88,6 +90,14 @@ export function toChaindocMcpError(err: unknown): ChaindocMcpError {
         out.validation = responseMessage;
       } else if (e.body !== undefined) {
         out.details = e.body;
+      }
+      // Pattern pass: refine the generic code with a state-machine code + hint.
+      if (typeof e.message === "string") {
+        const p = matchErrorPattern(status, e.message);
+        if (p !== undefined) {
+          out.code = p.code;
+          out.hint = p.hint;
+        }
       }
       return out;
     }
