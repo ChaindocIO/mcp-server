@@ -1,0 +1,54 @@
+# Smithery deployment config — https://smithery.ai
+#
+# Smithery requires a publicly reachable HTTPS MCP endpoint. There are two
+# ways to satisfy that:
+#
+#   1) Smithery-hosted (recommended)
+#      - Smithery reads this file + Dockerfile, builds the image, and hosts
+#        your server at https://server.smithery.ai/<owner>/<repo>/mcp.
+#      - Connect the repo at https://smithery.ai/new and pick "Container".
+#
+#   2) Self-hosted
+#      - Deploy `Dockerfile` (CMD: `node dist/transports/http.js`) to any
+#        platform that exposes a public HTTPS URL — Render, Fly.io, Railway,
+#        Cloud Run, Fargate, etc.
+#      - Provide the resulting `https://your-host/mcp` URL when registering
+#        on smithery.ai (skip the container build step).
+#
+# In both cases Smithery proxies each user's MCP request to /mcp and
+# forwards their per-install config (`chaindocApiKey`, `chaindocEnvironment`
+# from `configSchema` below) as a `?config=<base64-JSON>` query string, or the
+# key as `Authorization: Bearer`. The HTTP transport reads both
+# (src/transports/auth.ts); the other server settings are environment variables.
+
+runtime: "container"
+
+build:
+  dockerfile: "Dockerfile"
+  dockerBuildPath: "."
+
+startCommand:
+  type: http
+  configSchema:
+    type: object
+    required:
+      - chaindocApiKey
+    properties:
+      chaindocApiKey:
+        type: string
+        title: "Chaindoc API Key"
+        description: "Your Chaindoc API key. Use sk_* for full read/write or pk_* for read-only. Create one in Chaindoc → Settings → API Access (Business plan)."
+        format: password
+      chaindocEnvironment:
+        type: string
+        title: "Environment"
+        enum:
+          - production
+          - staging
+          - development
+        default: production
+        description: "Chaindoc API environment. Use 'production' unless you're testing against a non-production tenant."
+
+  exampleConfig:
+    chaindocApiKey: "sk_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    chaindocEnvironment: "production"
