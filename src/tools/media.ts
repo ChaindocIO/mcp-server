@@ -25,8 +25,8 @@ export const mediaUpload: ToolDefinition<UploadInput> = defineTool({
     "Do not use it for documents: a document's file goes through chaindoc_storage_upload_file or " +
     "chaindoc_documents_create_from_file (it is converted into a text document). Max 250 MB per file.",
   inputSchema: UploadInputSchema,
-  async handler(args, { client }) {
-    const files = await Promise.all(args.files.map(resolveFile));
+  async handler(args, { client, transport }) {
+    const files = await Promise.all(args.files.map((f) => resolveFile(f, transport)));
     return client.run("chaindoc_media_upload", (sdk) =>
       sdk.media.upload(files.map((f) => f.blob)),
     );
@@ -43,8 +43,8 @@ export const storageUploadFile: ToolDefinition<z.infer<typeof StorageUploadSchem
     "of chaindoc_documents_update. Counts against the workspace storage limit (STORAGE_LIMIT_REACHED). " +
     "To make a document straight from a file, use chaindoc_documents_create_from_file instead.",
   inputSchema: StorageUploadSchema,
-  async handler(args, { client }) {
-    const { blob, filename } = await resolveFile(args.file);
+  async handler(args, { client, transport }) {
+    const { blob, filename } = await resolveFile(args.file, transport);
     return client.run("chaindoc_storage_upload_file", (sdk) =>
       sdk.media.uploadChunked(blob, { filename }),
     );

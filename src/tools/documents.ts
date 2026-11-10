@@ -137,9 +137,9 @@ export const documentsCreateFromFile = defineTool({
     "and versionId. Uses the workspace AI budget and storage (AI_LIMIT_REACHED, STORAGE_LIMIT_REACHED refuse before " +
     "anything is spent). The converted text has no signature places yet: add them with chaindoc_documents_add_signature_block.",
   inputSchema: FromFileInputSchema,
-  handler: async (args, { client }) => {
+  handler: async (args, { client, transport }) => {
     const { file, ...params } = args;
-    const { blob, filename } = await resolveFile(file);
+    const { blob, filename } = await resolveFile(file, transport);
     return client.run("chaindoc_documents_create_from_file", (sdk) =>
       sdk.documents.createFromFile(blob, params, { filename }),
     );

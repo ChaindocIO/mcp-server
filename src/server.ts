@@ -26,6 +26,8 @@ export interface BuildServerOptions {
   retry?: { maxRetries?: number; baseDelayMs?: number; maxDelayMs?: number };
   logger?: Logger;
   downloads?: { mode?: DownloadAdapterMode; dir?: string; inlineMaxBytes?: number };
+  /** Transport serving this server; `filePath`/`url` file inputs need 'stdio'. Default 'http' (the restrictive one). */
+  transport?: "stdio" | "http";
   /** Secrets of connected systems by integration uuid (stdio only; see ToolContext). */
   integrationSecrets?: Readonly<Record<string, string>>;
 }
@@ -96,6 +98,7 @@ export function buildServer(opts: BuildServerOptions): Server {
         client,
         logger,
         downloads,
+        transport: opts.transport ?? "http",
         ...(opts.integrationSecrets !== undefined && { integrationSecrets: opts.integrationSecrets }),
       });
       return {

@@ -69,6 +69,7 @@ async function main(): Promise<void> {
         maxDelayMs: config.retryMaxDelayMs,
       },
       logger: reqLogger,
+      transport: "http",
       downloads: {
         mode: config.downloadMode === "auto" ? "inline" : config.downloadMode,
         dir: config.downloadDir,

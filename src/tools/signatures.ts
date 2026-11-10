@@ -2,6 +2,7 @@ import { z } from "zod";
 import { defineTool, type ToolDefinition } from "./types.js";
 import { deliverDownload } from "../core/downloads.js";
 import { AccountChoiceSchema, MetaTagSchema } from "./schemas.js";
+import { FileInputSchema, resolveFile } from "./file-input.js";
 
 /**
  * Signatures API
@@ -187,11 +188,7 @@ const CreateSignatureSchema = z.object({
   name: z.string().min(1).max(200).optional(),
 });
 
-const ValidatePdfFileInputSchema = z.union([
-  z.object({ kind: z.literal("filePath"), path: z.string(), mimeType: z.string().default("application/pdf") }),
-  z.object({ kind: z.literal("url"), url: z.string().url(), mimeType: z.string().default("application/pdf") }),
-  z.object({ kind: z.literal("inline"), name: z.string(), mimeType: z.string().default("application/pdf"), base64Content: z.string() }),
-]);
+const ValidatePdfFileInputSchema = FileInputSchema; // mimeType: application/pdf
 
 export const signaturesEditRequest = defineTool({
   name: "chaindoc_signatures_edit_request",
@@ -270,24 +267,10 @@ export const signaturesValidatePdfSignatures = defineTool({
   name: "chaindoc_signatures_validate_pdf_signatures",
   description:
     "Validate digital signatures embedded in a PDF via the EU DSS service. " +
-    "Pass the PDF as filePath, url, or inline base64. The file is NOT stored.",
+    "Pass the PDF as inline base64 (filePath and url work only on the local stdio server). The file is NOT stored.",
   inputSchema: z.object({ file: ValidatePdfFileInputSchema }),
-  handler: async (args, { client }) => {
-    const f = args.file;
-    let blob: File | Blob;
-    if (f.kind === "filePath") {
-      const { readFile } = await import("node:fs/promises");
-      const buf = await readFile(f.path);
-      blob = new File([buf], f.path.split("/").pop() ?? "upload.pdf", { type: f.mimeType });
-    } else if (f.kind === "url") {
-      const resp = await fetch(f.url);
-      if (!resp.ok) throw Object.assign(new Error(`Failed to fetch ${f.url}: ${resp.status}`), { status: resp.status });
-      const buf = Buffer.from(await resp.arrayBuffer());
-      blob = new File([buf], f.url.split("/").pop() ?? "upload.pdf", { type: f.mimeType });
-    } else {
-      const buf = Buffer.from(f.base64Content, "base64");
-      blob = new File([buf], f.name, { type: f.mimeType });
-    }
+  handler: async (args, { client, transport }) => {
+    const { blob } = await resolveFile(args.file, transport);
     return client.run("chaindoc_signatures_validate_pdf_signatures", (sdk) =>
       sdk.signatures.validatePdfSignatures(blob),
     );

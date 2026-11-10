@@ -40,7 +40,8 @@ export type ChaindocErrorCode =
   | "document_not_public"
   // raised by the MCP server itself, before any call is made
   | "confirmation_required"
-  | "unavailable";
+  | "unavailable"
+  | "file_input_refused";
 
 const STATUS_TO_CODE: Record<number, ChaindocErrorCode> = {
   400: "invalid_argument",
@@ -74,6 +75,9 @@ export function toChaindocMcpError(err: unknown): ChaindocMcpError {
   }
   if (err instanceof ConfirmationRequiredError) {
     return { code: "confirmation_required", message: err.message, hint: err.hint };
+  }
+  if (err instanceof FileInputRefusedError) {
+    return { code: "file_input_refused", message: err.message, hint: err.hint };
   }
   if (err instanceof UnavailableError) {
     return { code: "unavailable", message: err.message, hint: err.hint };
@@ -185,6 +189,16 @@ export class UnavailableError extends Error {
   constructor(message: string, hint: string) {
     super(message);
     this.name = "UnavailableError";
+    this.hint = hint;
+  }
+}
+
+/** A file input (path or URL) was refused by the server's own safety rules, before anything was read or fetched. */
+export class FileInputRefusedError extends Error {
+  readonly hint: string;
+  constructor(message: string, hint = "Send the file as base64 (kind: 'inline') or through Storage (chaindoc_storage_upload_file).") {
+    super(message);
+    this.name = "FileInputRefusedError";
     this.hint = hint;
   }
 }
