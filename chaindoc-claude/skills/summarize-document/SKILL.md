@@ -21,8 +21,11 @@ genuinely ambiguous, list candidates and ask which one — do not guess.
 
 ## Step 2 — Pull the right level of detail
 
-Use the Chaindoc retrieve tool to get the document's content. If the document
-is long, fetch the structured fields (parties, dates, totals, clause headers)
+Read the text with `chaindoc_documents_get_content`: it returns the document's
+text with its signer `roles` and `fields`. If `chaindoc_documents_get` says the
+document is a `file` (older documents), there is no text yet: download it (below) or
+offer `chaindoc_documents_convert`, which makes a text version and uses the AI budget,
+so ask first. If the document is long, fetch the structured fields (parties, dates, totals, clause headers)
 before pulling full clause text. Don't dump the full document into the
 response.
 
@@ -88,7 +91,7 @@ Close with a single suggested next step phrased as a question, not a command:
 
 Do not execute the next action automatically — wait for the user.
 
-## Fetching the bytes (v0.2.0)
+## Fetching the bytes
 
 To actually read the PDF contents for summarization, use
 `chaindoc_documents_download` (or `_preview` for the logged-as-preview variant)

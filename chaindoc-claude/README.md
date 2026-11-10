@@ -44,8 +44,12 @@ Each of these maps to a Chaindoc product page on
   with a tamper-evident hash on chain.
 - **[Send e-signature requests](https://chaindoc.io/signing)** to one or
   more signers in parallel — email or embedded iframe flow.
+- **Turn a PDF or DOCX into a text document** (converted, with signature places
+  as chips in the text) and send it by signer role.
 - **[Render contract templates](https://chaindoc.io/contract-templates)**
-  with variables and ship them straight into a signing flow.
+  with variables and ship them straight into a signing flow or a contract.
+- **Bill counterparties** with tax treatments and credit notes, and **start and
+  follow Processes**.
 - **[Collect contract payments](https://chaindoc.io/payments)** with
   recurring or one-off terms charged through Stripe Connect.
 - **[Verify any document](https://chaindoc.io/verify-document)** by
@@ -54,7 +58,7 @@ Each of these maps to a Chaindoc product page on
 - **[Manage your team](https://chaindoc.io/team-management)** — share docs,
   set per-role rights, audit access.
 
-API access ships with the [Business plan](https://chaindoc.io/pricing).
+API access and this plugin need the [Business plan](https://chaindoc.io/pricing) or above.
 Don't have an account yet?
 [Create one](https://app.chaindoc.io/?lang=en) and grab an `sk_*` key in
 **Settings → API Access**.
@@ -104,10 +108,11 @@ on payment".
 After Claude creates or retrieves a document, you can interact with it directly
 in the Chaindoc web app:
 
-- **View / download a document:** `https://app.chaindoc.io/documents/{documentId}`
-  — replace `{documentId}` with the UUID returned by tools like
-  `chaindoc_documents_create` or `chaindoc_contracts_create`.
-  Example: `https://app.chaindoc.io/documents/5d8e4682-b6d6-4069-bca0-5b3482ed55b1`
+- **View / download a document:** `https://app.chaindoc.io/w/{workspaceUuid}/documents/{documentId}`
+  — every screen is inside a workspace. `{documentId}` is the UUID returned by tools like
+  `chaindoc_documents_create`; `{workspaceUuid}` comes from a webhook event's `workspace.uuid` or
+  from any app link you copied. Contracts, invoices, templates and process cases follow the same
+  pattern (`/contracts/{id}`, `/invoices/{id}`, `/templates/{id}`, `/process-cases/{uuid}`).
 - **Verify a signed PDF publicly:** [chaindoc.io/pdf-verify](https://chaindoc.io/pdf-verify)
   — no login required. Upload the signed PDF and Chaindoc confirms whether the
   signature and on-chain anchor are valid.
@@ -115,6 +120,9 @@ in the Chaindoc web app:
 ## Safety
 
 The usage guide skill instructs Claude to confirm any irreversible action
-(sending for signature, voiding a document, marking an invoice final) with you
-before calling the tool. Authentication errors surface as a setup hint rather
+(sending for signature, voiding a document) with you before calling the tool.
+Money acts (mark an invoice paid, charge it, issue a credit note) and permanent
+deletes are refused by the server unless Claude passes an explicit confirmation
+after you said yes. Bank details are read only: Claude can read them but cannot
+create, change or assign them; do that in the Chaindoc app. Authentication errors surface as a setup hint rather
 than silent retries.

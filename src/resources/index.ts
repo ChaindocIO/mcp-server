@@ -1,4 +1,5 @@
 import type { ChaindocClient } from "../core/client.js";
+import { toChaindocMcpError } from "../core/errors.js";
 
 /**
  * Resource registry. Each resource is identified by a URI under the
@@ -21,6 +22,14 @@ import type { ChaindocClient } from "../core/client.js";
  *   chaindoc://invoices                         (recent invoices)
  *   chaindoc://contracts/{id}/stats             (contract stats)
  *   chaindoc://contracts/{id}/termination       (contract termination)
+ *   chaindoc://documents/{id}/content           (a document's text, roles and fields)
+ *   chaindoc://conversions/{id}                 (a file's conversion)
+ *   chaindoc://contragents                      (counterparties)
+ *   chaindoc://tax-treatments                   (tax treatments an invoice can name)
+ *   chaindoc://payment-instructions             (READ ONLY bank/crypto details)
+ *   chaindoc://processes                        (processes the key may discover)
+ *   chaindoc://processes/cases/{uuid}           (a process case)
+ *   chaindoc://guide/workspace-links            (where things are in the Chaindoc app: /w/{workspaceUuid}/...)
  */
 
 export interface ResourceContent {
@@ -47,6 +56,15 @@ const RE_DOC_VERSION = /^chaindoc:\/\/documents\/versions\/([0-9a-f-]+)$/i;
 const RE_VERIFY = /^chaindoc:\/\/verification\/(0x[0-9a-fA-F]+)$/;
 const RE_CONTRACT = /^chaindoc:\/\/contracts\/([0-9a-f-]+)$/i;
 const RE_CONTRACT_STATUS = /^chaindoc:\/\/contracts\/([0-9a-f-]+)\/status$/i;
+
+const URI_CONTRAGENTS = "chaindoc://contragents";
+const URI_TAX_TREATMENTS = "chaindoc://tax-treatments";
+const URI_PAYMENT_INSTRUCTIONS = "chaindoc://payment-instructions";
+const URI_PROCESSES = "chaindoc://processes";
+const URI_GUIDE_LINKS = "chaindoc://guide/workspace-links";
+const RE_DOC_CONTENT = /^chaindoc:\/\/documents\/([0-9a-f-]+)\/content$/i;
+const RE_CONVERSION = /^chaindoc:\/\/conversions\/([0-9a-zA-Z_-]+)$/;
+const RE_PROCESS_CASE = /^chaindoc:\/\/processes\/cases\/([0-9a-f-]+)$/i;
 
 const URI_RECENT_TEMPLATES = "chaindoc://templates";
 const URI_RECENT_INVOICES = "chaindoc://invoices";
@@ -89,74 +107,67 @@ export async function listResources(client: ChaindocClient): Promise<ResourceLis
     },
     { uri: URI_RECENT_TEMPLATES, name: "Recent templates", description: "Index of owned templates.",                       mimeType: "application/json" },
     { uri: URI_RECENT_INVOICES,  name: "Recent invoices",  description: "Cross-contract invoice index for the key owner.", mimeType: "application/json" },
+    { uri: URI_CONTRAGENTS, name: "Counterparties", description: "The business's address book (contragents).", mimeType: "application/json" },
+    { uri: URI_TAX_TREATMENTS, name: "Tax treatments", description: "Tax treatments an invoice can name.", mimeType: "application/json" },
+    { uri: URI_PAYMENT_INSTRUCTIONS, name: "Payment instructions (read only)", description: "Bank / crypto details the business prints on invoices. Read only: managed in the Chaindoc app.", mimeType: "application/json" },
+    { uri: URI_PROCESSES, name: "Processes", description: "Processes this key may discover.", mimeType: "application/json" },
+    { uri: URI_GUIDE_LINKS, name: "Where things are in the Chaindoc app", description: "Workspace-scoped links /w/{workspaceUuid}/... for documents, contracts, invoices, templates, processes.", mimeType: "text/markdown" },
   ];
 
-  // Best-effort enrichment with concrete IDs so @-mention can find them.
-  // Tolerate failures — listing must not fail entirely.
-  try {
-    const reqs = await client.run("resources_list_signature_requests", (sdk) =>
-      sdk.signatures.getMyRequests({ pageNumber: 1, pageSize: 25 }),
-    );
-    const arr = Array.isArray((reqs as { items?: unknown[] }).items)
-      ? ((reqs as { items: Array<{ id?: string; status?: string }> }).items)
-      : [];
-    for (const r of arr) {
-      if (typeof r.id === "string") {
-        items.push({
-          uri: `chaindoc://signatures/requests/${r.id}`,
-          name: `Signature request ${r.id}`,
-          description: `status=${r.status ?? "unknown"}`,
-          mimeType: "application/json",
-        });
-      }
-    }
-  } catch {
-    /* swallow */
-  }
-
-  try {
-    const list = await client.run("resources_list_contracts", (sdk) =>
-      sdk.contracts.list({ page: 1, limit: 25 }),
-    );
-    const arr = Array.isArray((list as { contracts?: unknown[] }).contracts)
-      ? ((list as { contracts: Array<{ id?: string; title?: string; status?: string }> }).contracts)
-      : [];
-    for (const c of arr) {
-      if (typeof c.id === "string") {
-        items.push({
-          uri: `chaindoc://contracts/${c.id}`,
-          name: c.title ?? `Contract ${c.id}`,
-          description: `status=${c.status ?? "unknown"}`,
-          mimeType: "application/json",
-        });
-      }
-    }
-  } catch {
-    /* swallow */
-  }
-
-  try {
-    const list = await client.run("resources_list_templates", (sdk) =>
-      sdk.templates.list({ page: 1, limit: 25 }),
-    );
-    const arr = Array.isArray((list as { templates?: unknown[] }).templates)
-      ? ((list as { templates: Array<{ id?: string; name?: string; status?: string }> }).templates)
-      : Array.isArray((list as { items?: unknown[] }).items)
-      ? ((list as unknown as { items: Array<{ id?: string; name?: string; status?: string }> }).items)
-      : [];
-    for (const t of arr) {
-      if (typeof t.id === "string") {
-        items.push({
-          uri: `chaindoc://templates/${t.id}`,
-          name: t.name ?? `Template ${t.id}`,
-          description: `status=${t.status ?? "unknown"}`,
-          mimeType: "application/json",
-        });
-      }
-    }
-  } catch { /* swallow */ }
+  // Enrich with concrete ids so @-mention can find them. A source that fails is not hidden: it is listed as
+  // an `chaindoc://errors/...` entry carrying the server's reason, so the listing stays honest and usable.
+  items.push(
+    ...(await enrich("signature requests", async () => {
+      const reqs = await client.run("resources_list_signature_requests", (sdk) =>
+        sdk.signatures.getMyRequests({ pageNumber: 1, pageSize: 25 }),
+      );
+      return reqs.items.map((r) => ({
+        uri: `chaindoc://signatures/requests/${r.id}`,
+        name: `Signature request ${r.id}`,
+        description: `status=${r.status}`,
+        mimeType: "application/json",
+      }));
+    })),
+    ...(await enrich("contracts", async () => {
+      const list = await client.run("resources_list_contracts", (sdk) => sdk.contracts.list({ page: 1, limit: 25 }));
+      return list.contracts.map((c) => ({
+        uri: `chaindoc://contracts/${c.id}`,
+        name: c.title ?? `Contract ${c.id}`,
+        description: `status=${c.status}`,
+        mimeType: "application/json",
+      }));
+    })),
+    ...(await enrich("templates", async () => {
+      const list = await client.run("resources_list_templates", (sdk) => sdk.templates.list({ page: 1, limit: 25 }));
+      return list.templates.map((t) => ({
+        uri: `chaindoc://templates/${t.id}`,
+        name: t.name ?? `Template ${t.id}`,
+        description: `status=${t.status}`,
+        mimeType: "application/json",
+      }));
+    })),
+  );
 
   return items;
+}
+
+async function enrich(
+  source: string,
+  load: () => Promise<ResourceListItem[]>,
+): Promise<ResourceListItem[]> {
+  try {
+    return await load();
+  } catch (err) {
+    const e = toChaindocMcpError(err);
+    return [
+      {
+        uri: `chaindoc://errors/${source.replace(/\s+/g, "-")}`,
+        name: `Could not list ${source}`,
+        description: [e.errorKey ?? e.code, e.message, e.hint].filter(Boolean).join(" - "),
+        mimeType: "text/plain",
+      },
+    ];
+  }
 }
 
 export async function readResource(uri: string, client: ChaindocClient): Promise<ResourceContent> {
@@ -262,6 +273,40 @@ export async function readResource(uri: string, client: ChaindocClient): Promise
     return jsonResource(uri, data);
   }
 
+  if (uri === URI_CONTRAGENTS) {
+    return jsonResource(uri, await client.run("resources_read_contragents", (sdk) => sdk.contragents.list()));
+  }
+  if (uri === URI_TAX_TREATMENTS) {
+    return jsonResource(uri, await client.run("resources_read_tax_treatments", (sdk) => sdk.taxTreatments.list()));
+  }
+  if (uri === URI_PAYMENT_INSTRUCTIONS) {
+    return jsonResource(
+      uri,
+      await client.run("resources_read_payment_instructions", (sdk) => sdk.paymentInstructions.list()),
+    );
+  }
+  if (uri === URI_PROCESSES) {
+    return jsonResource(uri, await client.run("resources_read_processes", (sdk) => sdk.processes.list()));
+  }
+  if (uri === URI_GUIDE_LINKS) {
+    return { uri, mimeType: "text/markdown", text: WORKSPACE_LINKS_GUIDE };
+  }
+  m = uri.match(RE_DOC_CONTENT);
+  if (m) {
+    const id = m[1]!;
+    return jsonResource(uri, await client.run("resources_read_document_content", (sdk) => sdk.documents.getContent(id)));
+  }
+  m = uri.match(RE_CONVERSION);
+  if (m) {
+    const id = m[1]!;
+    return jsonResource(uri, await client.run("resources_read_conversion", (sdk) => sdk.conversions.get(id)));
+  }
+  m = uri.match(RE_PROCESS_CASE);
+  if (m) {
+    const id = m[1]!;
+    return jsonResource(uri, await client.run("resources_read_process_case", (sdk) => sdk.processes.getCase(id)));
+  }
+
   throw Object.assign(new Error(`Unknown resource URI: ${uri}`), { status: 404 });
 }
 
@@ -272,3 +317,36 @@ function jsonResource(uri: string, data: unknown): ResourceContent {
     text: JSON.stringify(data, null, 2),
   };
 }
+
+/**
+ * Where things live in the Chaindoc app. Every business screen sits under `/w/{workspaceUuid}/`; a link without
+ * the workspace drops the person out of their context. The paths are the app's own (src/app/w/[workspaceUuid]).
+ */
+export const WORKSPACE_LINKS_GUIDE = `# Where things are in the Chaindoc app
+
+Every screen of a business is under \`/w/{workspaceUuid}/...\` on the Chaindoc app's own host (use the host of the
+links the user already uses). Never give a link without the workspace segment. The workspace uuid comes from a webhook event's \`workspace.uuid\`, from any app link the user pasted
+(\`/w/<uuid>/...\`), or from the user - never invent it.
+
+| What | Path after /w/{workspaceUuid} |
+|---|---|
+| Documents (mine / shared / new) | /documents, /documents/my, /documents/shared, /documents/new |
+| A document (view / edit) | /documents/{documentId}, /documents/{documentId}/edit |
+| Signing (all / pending / completed) | /signing, /signing/pending, /signing/completed |
+| Templates (list / one / use) | /templates, /templates/{templateId}, /templates/{templateId}/use |
+| Contracts | /contracts, /contracts/{contractId} |
+| Invoices | /invoices, /invoices/{invoiceId} |
+| Counterparties | /contragents, /contragents/{contragentId} |
+| Partners | /partners, /partners/{uuid} |
+| Bills | /bills |
+| Processes (list / start / cases) | /processes, /processes/{definitionUuid}/start, /process-cases/{caseUuid} |
+| Tasks | /process-tasks |
+| Storage | /storage |
+| Payment details (bank, crypto) - owner only | /settings/payment-details |
+| Tax rates | /settings/tax-rates |
+| API keys | /settings/developers |
+| Plan and billing | /settings/billing |
+| Members | /settings/members |
+
+Bank details are created and changed only in /settings/payment-details, never through MCP.
+`;
