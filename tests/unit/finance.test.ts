@@ -105,9 +105,8 @@ describe("payment instructions are READ ONLY", () => {
     ]);
   });
 
-  it("the contract and contragent tools do not accept a payment-instruction assignment", () => {
+  it("no tool accepts a payment instruction (invoice, contract, contragent)", () => {
     for (const t of allTools) {
-      if (t.name === "chaindoc_invoices_create" || t.name === "chaindoc_invoices_update") continue; // select an existing one for ONE invoice
       const shape = JSON.stringify(zodToJsonSchema(t.inputSchema));
       expect(shape, t.name).not.toContain("paymentInstructionId");
     }

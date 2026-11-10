@@ -95,8 +95,8 @@ export const paymentInstructionsList = defineTool({
   name: "chaindoc_payment_instructions_list",
   description:
     "READ ONLY. List the business's payment instructions (bank accounts, crypto wallets, other), default first: id, type, " +
-    "label, currencyCode (null = any currency), isDefault and the details as they print on invoices. Use an `id` as " +
-    "`paymentInstructionId` when creating an invoice. Bank details cannot be created, changed, made default or assigned " +
+    "label, currencyCode (null = any currency), isDefault and the details as they print on invoices. Bank details " +
+    "cannot be created, changed, made default, assigned or chosen for an invoice " +
     "through this server - if the user wants that, tell them to do it in the Chaindoc app. Never ask the user to type " +
     "bank details into the chat for use here.",
   inputSchema: z.object({}),

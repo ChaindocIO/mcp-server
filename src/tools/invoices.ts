@@ -31,15 +31,6 @@ const LineItemSchema = z.object({
   unitPrice: z.string().regex(/^\d+(\.\d{1,2})?$/),
 });
 
-const PaymentInstructionIdField = z
-  .string()
-  .uuid()
-  .describe(
-    "An EXISTING payment instruction of the business, id from chaindoc_payment_instructions_list. Omit and the cascade " +
-      "(invoice > contract > counterparty > business default) picks one. Never ask the user for bank details to type in: " +
-      "they are created and changed in the Chaindoc app, not here.",
-  );
-
 const DiscountSchema = z.object({
   type: z.enum(["fixed", "percent"]),
   value: DecimalString.describe("A money amount for 'fixed', a 0-100 percentage for 'percent'. Applied before tax."),
@@ -54,7 +45,6 @@ const CreateInputSchema = z.object({
   dueDate: z.string().datetime({ offset: true }),
   lineItems: z.array(LineItemSchema).max(50).optional(),
   discount: DiscountSchema.optional(),
-  paymentInstructionId: PaymentInstructionIdField.optional(),
   taxTreatmentId: z
     .string()
     .uuid()
@@ -72,7 +62,7 @@ const CreateInputSchema = z.object({
     "Required (true) ONLY when autoCharge=true, because that charges the customer's saved payment method. " +
       "Set it only after the user confirmed the amount and customer.",
   ),
-});
+}).strict();
 
 const ListInputSchema = z.object({
   contractId: z.string().uuid(),
@@ -135,8 +125,8 @@ export const invoicesCreate = defineTool({
   name: "chaindoc_invoices_create",
   description:
     "Create a manual invoice on an ACTIVE contract. Optional: `discount`, `taxTreatmentId` (chaindoc_tax_treatments_list), " +
-    "`paymentInstructionId` (an existing one from chaindoc_payment_instructions_list; bank details cannot be created or " +
-    "changed through this server), `stripePaymentAllowed`, `showUnpaid`, `takePaidAhead`. " +
+    "`stripePaymentAllowed`, `showUnpaid`, `takePaidAhead`. Where the customer pays is never chosen here: the cascade " +
+    "(contract > counterparty > business default) decides, and bank details are chosen in the Chaindoc app. " +
     "sendImmediately=true emails it right away. autoCharge=true CHARGES the customer's saved payment method: MONEY - " +
     "ask the user first and pass confirm=true only after they said yes.",
   inputSchema: CreateInputSchema,
@@ -278,9 +268,6 @@ const InvoiceUpdateSchema = z
     description: z.string().max(2000).optional(),
     dueDate: z.string().datetime({ offset: true }).optional(),
     lineItems: z.array(LineItemSchema).max(50).optional(),
-    paymentInstructionId: PaymentInstructionIdField.nullable().optional().describe(
-      "An existing payment instruction id; null clears this invoice's own selection (the cascade decides).",
-    ),
     showUnpaid: z.boolean().optional(),
     takePaidAhead: z.boolean().optional(),
   })

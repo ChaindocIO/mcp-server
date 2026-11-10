@@ -124,7 +124,7 @@ describe("money tools refuse without the user's confirmation", () => {
 });
 
 describe("new invoice fields", () => {
-  it("create forwards discount, tax treatment, payment instruction and flags", async () => {
+  it("create forwards discount, tax treatment and flags", async () => {
     const create = vi.fn().mockResolvedValue({ success: true });
     const args = invoicesCreate.inputSchema.parse({
       contractId: CID,
@@ -133,7 +133,6 @@ describe("new invoice fields", () => {
       dueDate: "2027-01-01T00:00:00Z",
       discount: { type: "percent", value: "10" },
       taxTreatmentId: PID,
-      paymentInstructionId: PID,
       stripePaymentAllowed: false,
       showUnpaid: false,
       takePaidAhead: false,
@@ -142,7 +141,6 @@ describe("new invoice fields", () => {
     expect(create.mock.calls[0]![1]).toMatchObject({
       discount: { type: "percent", value: "10" },
       taxTreatmentId: PID,
-      paymentInstructionId: PID,
       stripePaymentAllowed: false,
       showUnpaid: false,
       takePaidAhead: false,
@@ -150,11 +148,19 @@ describe("new invoice fields", () => {
     });
   });
 
-  it("update may clear its own payment instruction with null", async () => {
-    const update = vi.fn().mockResolvedValue({});
-    const args = invoicesUpdate.inputSchema.parse({ contractId: CID, invoiceUuid: IID, paymentInstructionId: null });
-    await invoicesUpdate.handler(args, ctx({ update }));
-    expect(update).toHaveBeenCalledWith(CID, IID, { paymentInstructionId: null });
+  it("neither create nor update takes a payment instruction (bank details are read only here)", () => {
+    expect(() =>
+      invoicesCreate.inputSchema.parse({
+        contractId: CID,
+        title: "T",
+        amount: "100.00",
+        dueDate: "2027-01-01T00:00:00Z",
+        paymentInstructionId: PID,
+      }),
+    ).toThrow();
+    expect(() =>
+      invoicesUpdate.inputSchema.parse({ contractId: CID, invoiceUuid: IID, paymentInstructionId: null }),
+    ).toThrow();
   });
 });
 
