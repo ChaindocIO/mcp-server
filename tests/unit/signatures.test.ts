@@ -48,7 +48,6 @@ import {
   signaturesCancel,
   signaturesRemind,
   signaturesCreateSignature,
-  signaturesValidatePdfSignatures,
   signaturesDownloadCertificate,
   signaturesDownloadSignedDocument,
 } from "../../src/tools/signatures.js";
@@ -159,5 +158,56 @@ describe("signatures binary downloads", () => {
     });
     expect(downloadSignedDocument).toHaveBeenCalledWith(RID);
     expect((r as { kind: string }).kind).toBe("inline");
+  });
+});
+
+import { signaturesCreateRequest, signaturesResend } from "../../src/tools/signatures.js";
+
+describe("signature requests bind by role, not coordinates", () => {
+  const VER = "00000000-0000-0000-0000-000000000009";
+  const base = {
+    versionId: VER,
+    recipients: [{ email: "anna@example.com", role: "client", account: { kind: "personal" as const } }],
+    deadline: "2027-01-01T00:00:00Z",
+  };
+
+  it("forwards role and account on each recipient", async () => {
+    const createRequest = vi.fn().mockResolvedValue({ requestId: RID });
+    const args = signaturesCreateRequest.inputSchema.parse(base);
+    await signaturesCreateRequest.handler(args, sigCtx(fakeClient({ signatures: { createRequest } as never })));
+    const payload = createRequest.mock.calls[0]![0];
+    expect(payload.recipients).toEqual(base.recipients);
+    expect(payload.deadline).toEqual(new Date("2027-01-01T00:00:00Z"));
+    expect(payload).not.toHaveProperty("fields");
+  });
+
+  it("refuses coordinate fields instead of silently dropping them", () => {
+    expect(() =>
+      signaturesCreateRequest.inputSchema.parse({
+        ...base,
+        fields: [{ signerEmail: "anna@example.com", fieldType: "signature", pageIndex: 0, xPct: 0.1, yPct: 0.1, wPct: 0.2, hPct: 0.1 }],
+      }),
+    ).toThrow();
+  });
+
+  it("the description teaches roles and chips", () => {
+    expect(signaturesCreateRequest.description).toContain("role");
+    expect(signaturesCreateRequest.description).toContain("chips");
+  });
+
+  it("resend opens a new request over the cancelled one", async () => {
+    const resend = vi.fn().mockResolvedValue({ requestId: "new", resentFrom: RID });
+    const args = signaturesResend.inputSchema.parse({ requestId: RID, deadline: "2027-02-01T00:00:00Z" });
+    await signaturesResend.handler(args, sigCtx(fakeClient({ signatures: { resend } as never })));
+    expect(resend).toHaveBeenCalledWith(RID, { deadline: new Date("2027-02-01T00:00:00Z") });
+  });
+
+  it("resend without a deadline re-applies the original window", async () => {
+    const resend = vi.fn().mockResolvedValue({});
+    await signaturesResend.handler(
+      signaturesResend.inputSchema.parse({ requestId: RID }),
+      sigCtx(fakeClient({ signatures: { resend } as never })),
+    );
+    expect(resend).toHaveBeenCalledWith(RID, undefined);
   });
 });

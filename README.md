@@ -11,12 +11,14 @@ send [e-signature requests](https://chaindoc.io/signing), render
 [contract payments](https://chaindoc.io/payments), and
 [verify any document](https://chaindoc.io/verify-document) on chain.
 
-> **Status:** v0.2.0. Built against the
-> [Chaindoc REST API and SDK docs](https://chaindoc.io/docs). All endpoints in
-> this README are real. Runtime depends on
-> [`@chaindoc_io/server-sdk@^2.1.0`](https://www.npmjs.com/package/@chaindoc_io/server-sdk),
-> which covers documents, signatures, contracts, invoices, transactions,
-> templates, embedded sessions, and webhook verification.
+What changed in November 2026 → server-sdk `docs/WHATS-CHANGED-2026-11.md`
+
+> **Status:** v0.3.0 (124 tools). Built against the
+> [Chaindoc REST API and SDK docs](https://chaindoc.io/docs). Runtime depends on
+> [`@chaindoc_io/server-sdk@^3.0.0`](https://www.npmjs.com/package/@chaindoc_io/server-sdk).
+> **0.3.0 is a breaking update**, see [CHANGELOG.md](CHANGELOG.md): documents are text with chips (a file is
+> converted, signature places are bound by role, not coordinates), templates use the new content format,
+> template previews are gone, and money acts need an explicit confirmation. Every call needs a **Business plan**.
 
 ## Built for
 
@@ -149,12 +151,18 @@ MCP `isError: true` with a normalized envelope:
 
 ```json
 {
-  "code": "rate_limited",
-  "httpStatus": 429,
+  "code": "forbidden",
+  "httpStatus": 403,
+  "errorKey": "INTEGRATIONS_NOT_IN_PLAN",
   "message": "...",
-  "retryAfter": 30
+  "hint": "The workspace needs the Business plan (or above) for API/MCP access; tell the user to upgrade, then retry."
 }
 ```
+
+`errorKey` is the server's own machine-readable reason, passed through as sent; `hint` is one line for the keys we
+know (plan, read-only account, limits, `DOCUMENT_FILE_CONVERTS`, `SIGNING_FIELDS_EMPTY`, `TEMPLATE_*`, `STRIPE_*`,
+`PROCESS_*`, ...). Errors raised by this server itself: `confirmation_required` (a money act without `confirm=true`),
+`unavailable`, `file_input_refused`.
 
 ### Account
 
@@ -167,14 +175,25 @@ MCP `isError: true` with a normalized envelope:
 
 | Tool | Endpoint |
 |---|---|
-| `chaindoc_media_upload` | `POST /media/upload` (multipart, up to 10 files, 250 MB each) |
+| `chaindoc_storage_upload_file` | `POST /media/chunked` (resumable upload into Storage; returns `storageFileId`) |
+| `chaindoc_media_upload` | `POST /media/upload` (temporary; only for a saved-signature image) |
+
+File inputs: `kind: 'inline'` (base64) works everywhere. `filePath` and `url` work only on the local **stdio** server
+(a path must be a regular file; a URL must be public http(s), is checked against private/loopback/link-local ranges and
+is never redirected); the hosted HTTP server refuses them. Size cap 250 MB, enforced before and while reading.
 
 ### Documents
 
 | Tool | Endpoint |
 |---|---|
-| `chaindoc_documents_create` | `POST /documents` |
-| `chaindoc_documents_update` | `PUT /documents/:documentId` (creates new version) |
+| `chaindoc_documents_create` | `POST /documents` (a text document from `content`) |
+| `chaindoc_documents_create_from_file` | Storage upload + `POST /documents/from-storage` (202, a conversion) |
+| `chaindoc_documents_create_from_storage` | `POST /documents/from-storage` |
+| `chaindoc_conversions_get` / `_wait` | `GET /documents/conversions/:id` (wait polls with backoff) |
+| `chaindoc_documents_update` | `PUT /documents/:documentId` (next version from `content` + `baseVersionId`, or from a Storage file) |
+| `chaindoc_documents_get_content` | `GET /documents/:documentId/content` (text, `roles`, `fields`) |
+| `chaindoc_documents_convert` | `POST /documents/:documentId/conversion` |
+| `chaindoc_documents_add_signature_block` | `POST /documents/:documentId/signature-block` |
 | `chaindoc_documents_update_rights` | `PUT /documents/:documentId/rights` |
 | `chaindoc_documents_verify` | `POST /documents/verify` |
 | `chaindoc_documents_get_verification_status` | `GET /documents/versions/:versionId/verification` |
@@ -183,7 +202,8 @@ MCP `isError: true` with a normalized envelope:
 
 | Tool | Endpoint |
 |---|---|
-| `chaindoc_signatures_create_request` | `POST /signatures/requests` (incl. pre-placed fields) |
+| `chaindoc_signatures_create_request` | `POST /signatures/requests` (recipients bound by `role`, optional `account`; no coordinates) |
+| `chaindoc_signatures_resend` | `POST /signatures/requests/:requestId/resend` |
 | `chaindoc_signatures_get_request_status` | `GET /signatures/requests/:requestId/status` |
 | `chaindoc_signatures_sign` | `POST /signatures/sign` |
 | `chaindoc_signatures_get_my_requests` | `GET /signatures/requests` |
@@ -218,7 +238,13 @@ MCP `isError: true` with a normalized envelope:
 | `chaindoc_invoices_get` | `GET /contracts/:contractId/invoices/:invoiceUuid` |
 | `chaindoc_invoices_send` | `POST /contracts/:contractId/invoices/:invoiceUuid/send` |
 | `chaindoc_invoices_charge` | `POST /contracts/:contractId/invoices/:invoiceUuid/charge` |
-| `chaindoc_invoices_mark_paid` | `POST /contracts/:contractId/invoices/:invoiceUuid/mark-paid` |
+| `chaindoc_invoices_mark_paid` | `POST /contracts/:contractId/invoices/:invoiceUuid/mark-paid` (**needs `confirm`**) |
+| `chaindoc_invoices_list_credit_notes` | `GET /contracts/:contractId/invoices/:invoiceUuid/credit-notes` |
+| `chaindoc_invoices_create_credit_note` | `POST /contracts/:contractId/invoices/:invoiceUuid/credit-notes` (**needs `confirm`**) |
+
+`charge`, `mark_paid` and `create_credit_note` (and `autoCharge: true` on create/send) refuse with
+`confirmation_required` unless the agent passes `confirm: true`, which its description tells it to do only after the user
+said yes. Money calls are not retried automatically.
 
 ### Transactions
 
@@ -231,9 +257,39 @@ MCP `isError: true` with a normalized envelope:
 
 | Tool | Endpoint |
 |---|---|
+| `chaindoc_templates_list` / `_get` / `_get_versions` | `GET /templates...` (`_get` returns `workingCopy.revision`) |
+| `chaindoc_templates_create` / `_update` | `POST` / `PATCH /templates...` (`content` v2 + `revision`) |
+| `chaindoc_templates_publish` / `_archive` / `_restore` | `POST /templates/:templateId/{publish,archive,restore}` |
+| `chaindoc_templates_delete` | `DELETE /templates/:templateId` (permanent, **needs `confirm`**) |
 | `chaindoc_templates_create_document` | `POST /templates/:templateId/documents` |
 | `chaindoc_templates_send_for_signing` | `POST /templates/:templateId/signature-requests` |
 | `chaindoc_templates_create_contract` | `POST /templates/:templateId/contracts` |
+
+### Accounts, counterparties, tax, payment instructions
+
+| Tool | Endpoint |
+|---|---|
+| `chaindoc_accounts_lookup` | `POST /accounts/lookup` (where a person can be addressed: pass the option back as `account`) |
+| `chaindoc_contragents_list` / `_get` / `_create` / `_update` | `/contragents...` |
+| `chaindoc_tax_treatments_list` | `GET /tax-treatments` |
+| `chaindoc_payment_instructions_list` | `GET /payment-instructions` (**read only**) |
+
+Payment instructions (bank and crypto details) are read only through MCP: no tool creates, changes, defaults or
+assigns them, and the contragent update refuses an assignment. They are the owner's, set in the Chaindoc app.
+
+### Processes
+
+| Tool | Endpoint |
+|---|---|
+| `chaindoc_processes_list` | `GET /processes` |
+| `chaindoc_processes_get_entry` | `GET /processes/:processKey/entries/:entryKey` |
+| `chaindoc_processes_start` | `POST /processes/:processKey/entries/:entryKey/cases` |
+| `chaindoc_processes_get_case` | `GET /processes/cases/:caseUuid` |
+| `chaindoc_processes_get_events` | `GET /processes/cases/:caseUuid/events` (one page) |
+| `chaindoc_processes_respond` | `POST /processes/integrations/:integrationUuid/responses` (HMAC-signed) |
+
+`respond` reads the integration secret from `CHAINDOC_PROCESS_INTEGRATION_SECRETS` (JSON `{ "<integrationUuid>": "<secret>" }`,
+local stdio only); the secret is never a tool argument. Without it the tool answers `unavailable`.
 
 ### Webhooks
 
@@ -245,35 +301,10 @@ server exposes is a **verifier**:
 |---|---|
 | `chaindoc_webhooks_verify` | Wraps `Chaindoc.webhooks.verify()` — HMAC-SHA256 + 5-minute replay window. Returns `{ valid, envelope? }` where `envelope` is the canonical `{ id, type, createdAt, data }` payload. Required headers: `X-Chaindoc-Signature` (`v1=<hex>`), `X-Chaindoc-Timestamp`, `X-Chaindoc-Event`, `X-Chaindoc-Delivery-Id`. |
 
-### v0.2.0 — extended surface
+### Removed in 0.3.0
 
-**Documents (extended):** adds `_get`, `_get_versions`, `_search`, `_list_shared`,
-`_get_activity`, `_get_downloads`, `_send_public_link`, `_download`, `_preview`,
-`_comments_add`, `_comments_list`, and the polling helper `_wait_for_verification`.
-
-**Signatures (extended):** adds `_edit_request`, `_cancel`, `_remind`,
-`_create_signature`, `_validate_pdf_signatures`, `_download_certificate`,
-`_download_signed_document`. `_get_my_requests` gains an optional `status` filter.
-`_sign` is marked legacy in its description — prefer `chaindoc_contracts_business_sign`
-for new code.
-
-**Contracts (extended):** adds `_create_empty`, `_create_minimal`, `_import`,
-`_get_stats`, `_update`, `_delete`, `_attach_document`, `_setup_recurring`,
-`_resend_recurring_approval`, `_cancel_recurring_approval`, `_list_signing_requests`,
-`_get_signing_request`, `_resend_signing_request`, `_cancel_signing_request`,
-`_business_sign`, the `_termination_*` sub-module (6 tools), the
-`_payment_terms_*` sub-module (4 tools), and the `_agreements_*` sub-module (5 tools).
-
-**Templates (full lifecycle):** adds `_list`, `_get`, `_get_versions`, `_create`,
-`_update`, `_publish`, `_archive`, `_restore`, `_delete`, `_preview_pdf`,
-`_preview_html`, `_preview_unsaved_pdf` (alongside the existing `_create_document`,
-`_send_for_signing`, `_create_contract`).
-
-**Invoices (extended):** adds `_list_all`, `_update`, `_cancel`, `_download_pdf`.
-
-**Transactions (extended):** adds `_get_payment_mix` and `_get_fee_estimate`.
-
-**Webhooks:** adds `_parse` (unverified). Use `_verify` for any cross-network delivery.
+`chaindoc_templates_preview_pdf`, `_preview_html`, `_preview_unsaved_pdf` (the routes are gone), `contentJson` and
+`media` inputs, coordinate `fields` on signature requests, role audiences (`accessRoles`).
 
 ## Resources
 
@@ -290,16 +321,19 @@ for new code.
 | `chaindoc://contracts/{id}` | Contract details |
 | `chaindoc://contracts/{id}/status` | Lightweight contract status |
 
-Added in v0.2.0: `chaindoc://templates`, `chaindoc://templates/{id}`,
-`chaindoc://invoices`, `chaindoc://contracts/{id}/stats`,
-`chaindoc://contracts/{id}/termination`.
+Also: `chaindoc://templates`, `chaindoc://templates/{id}`, `chaindoc://invoices`, `chaindoc://contracts/{id}/stats`,
+`chaindoc://contracts/{id}/termination`, `chaindoc://documents/{id}/content`, `chaindoc://conversions/{id}`,
+`chaindoc://contragents`, `chaindoc://tax-treatments`, `chaindoc://payment-instructions` (read only),
+`chaindoc://processes`, `chaindoc://processes/cases/{uuid}` and `chaindoc://guide/workspace-links` (where things are in the
+app: `/w/{workspaceUuid}/...`). A source that cannot be listed appears as a `chaindoc://errors/...` entry with its reason.
 
 ## Prompts
 
 `summarize_document`, `prepare_signature_request`, `audit_open_signers`,
 `verify_document_chain_of_custody`, `set_up_contract_with_billing`,
 `verify_incoming_webhook`, `manage_contract_termination`,
-`author_and_publish_template`, `bill_recurring_on_imported_contract`.
+`author_and_publish_template`, `bill_recurring_on_imported_contract`, `send_file_for_signature`, `send_from_template`,
+`record_offline_payment`, `credit_an_invoice`, `start_a_process`.
 
 ## Develop
 
@@ -317,9 +351,10 @@ npm run dev:http        # local HTTP at :8787
 - Contract lifecycle: `contracts.create_minimal` → `attach_document` →
   `payment_terms.create` → `send` → `business_sign` → `invoices.create` →
   `terminate`.
-- Template lifecycle: `templates.create` → `preview_pdf` →
-  `preview_html` → `publish` → `create_document` → verify with
-  `documents.wait_for_verification`.
+- File flow: `documents.create_from_file` → `conversions.wait` → `add_signature_block` → `get_content` →
+  `signatures.create_request` (by role).
+- Template lifecycle: `templates.create` → `get` (revision) → `update` → `publish` → `create_document`.
+- Money: `invoices.create` → `send` → `mark_paid` without `confirm` (must refuse) → with `confirm`.
 - Termination: mutual-approval flow end-to-end (initiate from one key,
   approve from another).
 - Downloads: `documents.download` and `invoices.download_pdf` on both
@@ -327,6 +362,8 @@ npm run dev:http        # local HTTP at :8787
 
 ## Security
 
+- A file path or URL given by a caller is read or fetched only on the local stdio transport; the hosted server
+  refuses both (they would read its own files or reach its network).
 - The server never logs the API key. Pino redact paths cover env vars, config,
   and `Authorization` headers.
 - The webhook verifier is the only thing that touches webhook secrets, and it's
@@ -334,15 +371,16 @@ npm run dev:http        # local HTTP at :8787
 - Token-bucket throttle (`CHAINDOC_MAX_RPS`) defaults to Chaindoc's actual
   limit (10 requests / 60 seconds) so an agent loop won't blow the quota.
 - Circuit breaker opens after 3 consecutive 5xx and short-circuits for 30s.
-- The Chaindoc SDK already handles 429 / 5xx / network retries with exponential
-  backoff + jitter; we layer on top, not replace.
+- The Chaindoc SDK retries reads; writes are retried only when the request provably never reached the server (or on
+  429), and money calls are never retried automatically.
 
 ## Roadmap
 
 - Per-tenant logging context for the HTTP transport.
 - Optional Prometheus metrics endpoint.
 - Cowork plugin marketplace listing.
-- Contract template variable validation against published template definitions.
+- QES (device-signed) tools and `fieldValues` on `signatures.sign` (needs SDK support).
+- Process material intakes (file upload into a case).
 
 ## License
 

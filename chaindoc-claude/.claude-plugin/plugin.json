@@ -1,7 +1,7 @@
 {
   "name": "chaindoc",
-  "version": "0.2.0",
-  "description": "Control signatures, invoices and contracts. Create and analyze documents in Chaindoc. Send sign requests and contracts.",
+  "version": "0.3.0",
+  "description": "Control signatures, invoices, contracts, templates and processes. Create and analyze documents in Chaindoc. Send sign requests and contracts.",
   "author": {
     "name": "Chaindoc",
     "url": "https://chaindoc.io"

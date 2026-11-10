@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { defineTool, type ToolDefinition } from "./types.js";
 import { deliverDownload } from "../core/downloads.js";
+import { AccountChoiceSchema, MetaTagSchema } from "./schemas.js";
+import { FileInputSchema, resolveFile } from "./file-input.js";
 
 /**
  * Signatures API
@@ -20,24 +22,20 @@ const SigningMethodEnum = z
 
 const RecipientSchema = z.object({
   email: z.string().email(),
+  role: z
+    .string()
+    .min(1)
+    .optional()
+    .describe(
+      "The role this person signs as: a `key` from chaindoc_documents_get_content `roles`. Required when the text holds " +
+        "roles; every role needs exactly one recipient (SIGNATURE_ROLE_REQUIRED / _UNKNOWN / _UNASSIGNED / _TWICE).",
+    ),
+  account: AccountChoiceSchema.optional(),
   signingMethod: SigningMethodEnum.optional(),
 });
 
-const PlacedFieldSchema = z.object({
-  signerEmail: z.string().email(),
-  fieldType: z.enum(["signature", "initials", "date_signed", "text", "checkbox"]),
-  pageIndex: z.number().int().min(0),
-  xPct: z.number().min(0).max(1),
-  yPct: z.number().min(0).max(1),
-  wPct: z.number().min(0).max(1),
-  hPct: z.number().min(0).max(1),
-  required: z.boolean().optional(),
-  label: z.string().optional(),
-  systemKey: z.string().optional(),
-});
-
 const CreateRequestSchema = z.object({
-  versionId: z.string().uuid(),
+  versionId: z.string().uuid().describe("A version of a TEXT document (a file version is DOCUMENT_FILE_CONVERTS)."),
   recipients: z.array(RecipientSchema).min(1).max(50),
   deadline: z
     .string()
@@ -46,14 +44,8 @@ const CreateRequestSchema = z.object({
   embeddedFlow: z.boolean().default(false),
   isKycRequired: z.boolean().default(false),
   message: z.string().max(2000).optional(),
-  fields: z
-    .array(PlacedFieldSchema)
-    .max(100)
-    .optional()
-    .describe(
-      "Optional pre-placed fields when uploading a custom PDF. Skip when rendering from a template.",
-    ),
-});
+  meta: z.array(MetaTagSchema).optional(),
+}).strict(); // coordinate `fields` are refused, not dropped: places are chips in the text
 
 const RequestIdSchema = z.object({ requestId: z.string().uuid() });
 
@@ -82,10 +74,14 @@ const GetMyRequestsSchema = z.object({
 export const signaturesCreateRequest = defineTool({
   name: "chaindoc_signatures_create_request",
   description:
-    "Create a signature request for a document version. " +
-    "All recipients sign in parallel — Chaindoc does not support sequential or conditional ordering. " +
-    "`deadline` is required. Set signingMethod='embedded' on a recipient and use chaindoc_embedded_create_session for in-app signing; " +
-    "use 'delegated' when the API key owner will call chaindoc_signatures_sign on their behalf.",
+    "Create a signature request for a version of a TEXT document. Signature places are chips in the text, never " +
+    "coordinates: bind each recipient to a role of the text with `recipients[].role` (read roles with " +
+    "chaindoc_documents_get_content; add them to a converted file with chaindoc_documents_add_signature_block). " +
+    "Every role needs one recipient. Coordinate `fields` are refused (SETUP_FIELDS_STAND_IN_THE_TEXT). " +
+    "A converting or file version is refused (DOCUMENT_CONVERSION_PENDING / DOCUMENT_FILE_CONVERTS). " +
+    "`deadline` is required. Use `account` (from chaindoc_accounts_lookup) to address a person's workspace. " +
+    "Set signingMethod='embedded' and use chaindoc_embedded_create_session for in-app signing. " +
+    "A required signer field left empty at signing is SIGNING_FIELDS_EMPTY.",
   inputSchema: CreateRequestSchema,
   handler: (args, { client }) =>
     client.run("chaindoc_signatures_create_request", (sdk) => {
@@ -97,7 +93,7 @@ export const signaturesCreateRequest = defineTool({
         isKycRequired: args.isKycRequired,
       };
       if (args.message !== undefined) payload.message = args.message;
-      if (args.fields !== undefined) payload.fields = args.fields;
+      if (args.meta !== undefined) payload.meta = args.meta;
       return sdk.signatures.createRequest(payload);
     }),
 });
@@ -172,6 +168,7 @@ const EditRequestSchema = z.object({
   requestId: z.string().uuid(),
   signerId: z.string().uuid(),
   recipient: z.string().email(),
+  account: AccountChoiceSchema.optional(),
 });
 
 const SigMediaHandleSchema = z.object({
@@ -191,21 +188,21 @@ const CreateSignatureSchema = z.object({
   name: z.string().min(1).max(200).optional(),
 });
 
-const ValidatePdfFileInputSchema = z.union([
-  z.object({ kind: z.literal("filePath"), path: z.string(), mimeType: z.string().default("application/pdf") }),
-  z.object({ kind: z.literal("url"), url: z.string().url(), mimeType: z.string().default("application/pdf") }),
-  z.object({ kind: z.literal("inline"), name: z.string(), mimeType: z.string().default("application/pdf"), base64Content: z.string() }),
-]);
+const ValidatePdfFileInputSchema = FileInputSchema; // mimeType: application/pdf
 
 export const signaturesEditRequest = defineTool({
   name: "chaindoc_signatures_edit_request",
   description:
-    "Reassign a signer slot on a PENDING signature request. Preconditions: request must be pending. " +
+    "Reassign a signer slot on a PENDING signature request (optionally with the `account` option from chaindoc_accounts_lookup). Preconditions: request must be pending. " +
     "Otherwise returns code='wrong_state'.",
   inputSchema: EditRequestSchema,
   handler: (args, { client }) =>
     client.run("chaindoc_signatures_edit_request", (sdk) =>
-      sdk.signatures.editRequest(args.requestId, { signerId: args.signerId, recipient: args.recipient }),
+      sdk.signatures.editRequest(args.requestId, {
+        signerId: args.signerId,
+        recipient: args.recipient,
+        ...(args.account !== undefined && { account: args.account }),
+      }),
     ),
 });
 
@@ -230,6 +227,27 @@ export const signaturesRemind = defineTool({
     ),
 });
 
+export const signaturesResend = defineTool({
+  name: "chaindoc_signatures_resend",
+  description:
+    "Resend a CANCELLED or EXPIRED signature request: opens a NEW request over a fresh copy of the version with the " +
+    "original signers and leaves the first one as the record (the answer's requestId is the new one). " +
+    "Optional `deadline` (ISO-8601); omitted, the original window is re-applied from now. Refused for a request that is " +
+    "still active or that belongs to a contract (use chaindoc_contracts_resend_signing_request). " +
+    "To nudge signers of an ACTIVE request use chaindoc_signatures_remind. This emails the signers again: confirm with the user.",
+  inputSchema: z.object({
+    requestId: z.string().uuid(),
+    deadline: z.string().datetime({ offset: true }).optional(),
+  }),
+  handler: (args, { client }) =>
+    client.run("chaindoc_signatures_resend", (sdk) =>
+      sdk.signatures.resend(
+        args.requestId,
+        args.deadline !== undefined ? { deadline: new Date(args.deadline) } : undefined,
+      ),
+    ),
+});
+
 export const signaturesCreateSignature = defineTool({
   name: "chaindoc_signatures_create_signature",
   description:
@@ -249,24 +267,10 @@ export const signaturesValidatePdfSignatures = defineTool({
   name: "chaindoc_signatures_validate_pdf_signatures",
   description:
     "Validate digital signatures embedded in a PDF via the EU DSS service. " +
-    "Pass the PDF as filePath, url, or inline base64. The file is NOT stored.",
+    "Pass the PDF as inline base64 (filePath and url work only on the local stdio server). The file is NOT stored.",
   inputSchema: z.object({ file: ValidatePdfFileInputSchema }),
-  handler: async (args, { client }) => {
-    const f = args.file;
-    let blob: File | Blob;
-    if (f.kind === "filePath") {
-      const { readFile } = await import("node:fs/promises");
-      const buf = await readFile(f.path);
-      blob = new File([buf], f.path.split("/").pop() ?? "upload.pdf", { type: f.mimeType });
-    } else if (f.kind === "url") {
-      const resp = await fetch(f.url);
-      if (!resp.ok) throw Object.assign(new Error(`Failed to fetch ${f.url}: ${resp.status}`), { status: resp.status });
-      const buf = Buffer.from(await resp.arrayBuffer());
-      blob = new File([buf], f.url.split("/").pop() ?? "upload.pdf", { type: f.mimeType });
-    } else {
-      const buf = Buffer.from(f.base64Content, "base64");
-      blob = new File([buf], f.name, { type: f.mimeType });
-    }
+  handler: async (args, { client, transport }) => {
+    const { blob } = await resolveFile(args.file, transport);
     return client.run("chaindoc_signatures_validate_pdf_signatures", (sdk) =>
       sdk.signatures.validatePdfSignatures(blob),
     );
@@ -310,6 +314,7 @@ export const signaturesTools: ToolDefinition<unknown>[] = [
   signaturesEditRequest as ToolDefinition<unknown>,
   signaturesCancel as ToolDefinition<unknown>,
   signaturesRemind as ToolDefinition<unknown>,
+  signaturesResend as ToolDefinition<unknown>,
   signaturesCreateSignature as ToolDefinition<unknown>,
   signaturesValidatePdfSignatures as ToolDefinition<unknown>,
   signaturesDownloadCertificate as ToolDefinition<unknown>,

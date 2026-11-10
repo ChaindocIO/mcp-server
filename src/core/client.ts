@@ -10,6 +10,12 @@ import { CircuitBreaker, TokenBucket } from "./rate-limit.js";
  */
 export interface ChaindocSdkLike {
   documents: Chaindoc["documents"];
+  conversions: Chaindoc["conversions"];
+  accounts: Chaindoc["accounts"];
+  contragents: Chaindoc["contragents"];
+  paymentInstructions: Chaindoc["paymentInstructions"];
+  taxTreatments: Chaindoc["taxTreatments"];
+  processes: Chaindoc["processes"];
   signatures: Chaindoc["signatures"];
   embedded: Chaindoc["embedded"];
   contracts: Chaindoc["contracts"];

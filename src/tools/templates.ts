@@ -1,42 +1,29 @@
 import { z } from "zod";
+import type { DocumentContent } from "@chaindoc_io/server-sdk";
 import { defineTool, type ToolDefinition } from "./types.js";
-import { deliverDownload } from "../core/downloads.js";
+import { requireConfirmation, confirmField } from "./confirm.js";
+import {
+  AccountChoiceSchema,
+  ContragentInfoSchema,
+  DecimalString,
+  DocumentContentSchema,
+} from "./schemas.js";
 
 /**
- * Templates API
+ * Templates API (new format only: `content` + `revision`).
  *   CRUD:      GET/POST/PATCH /api/v1/templates
- *   Lifecycle: publish/archive/restore/delete
- *   Render:    POST /api/v1/templates/:templateId/documents
+ *   Lifecycle: publish / archive / restore / delete
+ *   Runtime:   POST /api/v1/templates/:templateId/documents          (always a draft)
  *              POST /api/v1/templates/:templateId/signature-requests
  *              POST /api/v1/templates/:templateId/contracts
+ *
+ * Old-format templates answer 410 TEMPLATE_RETIRED. There are no previews.
  */
-
-// ---------------------------------------------------------------------------
-// CRUD + lifecycle schemas
-// ---------------------------------------------------------------------------
 
 const TemplateCategoryEnum = z.enum([
   "contract", "agreement", "invoice", "nda", "proposal", "letter", "other",
 ]);
 const TemplateStatusEnum = z.enum(["draft", "published", "archived"]);
-const TemplateVariableDataTypeEnum = z.enum(["text", "long_text", "date", "number", "boolean"]);
-const TemplateVariableScopeEnum = z.enum(["document", "signer"]);
-
-const TemplateVariableInputSchema = z.object({
-  key: z.string().min(1),
-  label: z.string(),
-  dataType: TemplateVariableDataTypeEnum,
-  scope: TemplateVariableScopeEnum.optional(),
-  signerKey: z.string().optional(),
-  systemKey: z.string().optional(),
-  required: z.boolean(),
-  defaultValue: z.union([z.string(), z.number(), z.boolean()]).optional(),
-  description: z.string().optional(),
-});
-
-// Pass-through for richly typed SDK shapes we don't need to fully model.
-const PassThroughObject = z.record(z.unknown());
-const PassThroughArray = z.array(z.record(z.unknown()));
 
 const TemplateListInputSchema = z.object({
   page: z.number().int().positive().default(1),
@@ -47,42 +34,54 @@ const TemplateListInputSchema = z.object({
 
 const TemplateIdSchema = z.object({ templateId: z.string().uuid() });
 
+const TemplateContentSchema = DocumentContentSchema.refine((c) => c.mode === "template", {
+  message: "A template's content must have mode 'template'.",
+});
+
 const TemplateCreateSchema = z.object({
   name: z.string().min(1).max(200),
   description: z.string().max(2000).optional(),
   category: TemplateCategoryEnum,
-  contentJson: PassThroughObject.describe("Tiptap document JSON; passed through as-is."),
-  variablesSchema: z.array(TemplateVariableInputSchema).optional(),
-  signatureRequirements: PassThroughArray.optional(),
-  signerSlots: PassThroughArray.optional(),
-  renderConfig: PassThroughObject.optional(),
-  meta: z.array(z.object({ key: z.string(), value: z.string() })).optional(),
-});
+  content: TemplateContentSchema.describe(
+    "Engine content { version: 2, mode: 'template', doc }. Fields are chips with definitions in doc.attrs.fields; signer slots are doc.attrs.signers.",
+  ),
+  meta: z.array(z.string()).optional(),
+}).strict(); // the old `contentJson` is refused, not dropped
 
-const TemplateUpdateSchema = z.object({
-  templateId: z.string().uuid(),
-  name: z.string().min(1).max(200).optional(),
-  description: z.string().max(2000).optional(),
-  category: TemplateCategoryEnum.optional(),
-  contentJson: PassThroughObject.optional(),
-  variablesSchema: z.array(TemplateVariableInputSchema).optional(),
-  signatureRequirements: PassThroughArray.optional(),
-  signerSlots: PassThroughArray.optional(),
-  renderConfig: PassThroughObject.optional(),
-});
+const TemplateUpdateSchema = z
+  .object({
+    templateId: z.string().uuid(),
+    name: z.string().min(1).max(200).optional(),
+    description: z.string().max(2000).optional(),
+    category: TemplateCategoryEnum.optional(),
+    content: TemplateContentSchema.optional(),
+    revision: z
+      .number()
+      .int()
+      .nonnegative()
+      .optional()
+      .describe("The working copy's revision you read (chaindoc_templates_get -> template.workingCopy.revision). Required with `content`."),
+    allowEmpty: z.boolean().optional().describe("Permit saving an empty document (an intentional revert)."),
+  })
+  .strict()
+  .superRefine((v, ctx) => {
+    if (v.content !== undefined && v.revision === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "`content` needs `revision` (TEMPLATE_REVISION_REQUIRED): read it from chaindoc_templates_get.",
+      });
+    }
+  });
 
 const TemplatePublishSchema = z.object({
   templateId: z.string().uuid(),
-  changelog: z.string().max(2000).optional(),
+  changelog: z.string().max(1000).optional(),
+  revision: z.number().int().nonnegative().optional().describe("The working-copy revision you saw (else a moved copy is 409)."),
 });
-
-// ---------------------------------------------------------------------------
-// CRUD + lifecycle tool exports
-// ---------------------------------------------------------------------------
 
 export const templatesList = defineTool({
   name: "chaindoc_templates_list",
-  description: "Paginated list of owned templates with optional status and search filters.",
+  description: "Paginated list of the workspace's templates with optional status and search filters.",
   inputSchema: TemplateListInputSchema,
   handler: (args, { client }) =>
     client.run("chaindoc_templates_list", (sdk) => sdk.templates.list(args)),
@@ -91,7 +90,9 @@ export const templatesList = defineTool({
 export const templatesGet = defineTool({
   name: "chaindoc_templates_get",
   description:
-    "Fetch one template's detail: current + last-published version, variablesSchema, signer slots.",
+    "Fetch one template: current + last-published version (variablesSchema, signerSlots with their `signerKey`) and, " +
+    "for a key that may edit, `workingCopy` { content, revision } - the `revision` is what chaindoc_templates_update " +
+    "and chaindoc_templates_publish need. An old-format template answers 410 TEMPLATE_RETIRED.",
   inputSchema: TemplateIdSchema,
   handler: (args, { client }) =>
     client.run("chaindoc_templates_get", (sdk) => sdk.templates.get(args.templateId)),
@@ -99,7 +100,7 @@ export const templatesGet = defineTool({
 
 export const templatesGetVersions = defineTool({
   name: "chaindoc_templates_get_versions",
-  description: "Version history for a template. Each version carries its own variablesSchema.",
+  description: "Published version history for a template. Each version carries its own variablesSchema and signer slots.",
   inputSchema: TemplateIdSchema,
   handler: (args, { client }) =>
     client.run("chaindoc_templates_get_versions", (sdk) => sdk.templates.getVersions(args.templateId)),
@@ -108,78 +109,58 @@ export const templatesGetVersions = defineTool({
 export const templatesCreate = defineTool({
   name: "chaindoc_templates_create",
   description:
-    "Create a template (DRAFT). Provide name, category, contentJson (Tiptap document JSON), and optional " +
-    "variablesSchema / signerSlots / signatureRequirements.",
+    "Create a template as a DRAFT held in its working copy. Give `content` (engine content v2 with mode 'template'); " +
+    "variables and signer slots are read off the content. Publish it with chaindoc_templates_publish before using it. " +
+    "The old `contentJson` format is refused (TEMPLATE_FORMAT_RETIRED).",
   inputSchema: TemplateCreateSchema,
   handler: (args, { client }) =>
-    client.run("chaindoc_templates_create", (sdk) => {
-      const payload: Parameters<typeof sdk.templates.create>[0] = {
+    client.run("chaindoc_templates_create", (sdk) =>
+      sdk.templates.create({
         name: args.name,
         category: args.category,
-        contentJson: args.contentJson,
-      };
-      if (args.description !== undefined) payload.description = args.description;
-      if (args.variablesSchema !== undefined) payload.variablesSchema = args.variablesSchema;
-      if (args.signatureRequirements !== undefined)
-        payload.signatureRequirements =
-          args.signatureRequirements as unknown as Parameters<typeof sdk.templates.create>[0]["signatureRequirements"];
-      if (args.signerSlots !== undefined)
-        payload.signerSlots =
-          args.signerSlots as unknown as Parameters<typeof sdk.templates.create>[0]["signerSlots"];
-      if (args.renderConfig !== undefined)
-        payload.renderConfig =
-          args.renderConfig as Parameters<typeof sdk.templates.create>[0]["renderConfig"];
-      if (args.meta !== undefined) payload.meta = args.meta;
-      return sdk.templates.create(payload);
-    }),
+        content: args.content as DocumentContent,
+        ...(args.description !== undefined && { description: args.description }),
+        ...(args.meta !== undefined && { meta: args.meta }),
+      }),
+    ),
 });
 
 export const templatesUpdate = defineTool({
   name: "chaindoc_templates_update",
   description:
-    "Partial update. Editing a PUBLISHED template forks a new draft version while the last-published " +
-    "version remains the renderable one until the next publish.",
+    "Update a non-archived template. Name, description and category save at once. `content` goes into the working copy " +
+    "and MUST name the `revision` you read (TEMPLATE_REVISION_REQUIRED otherwise; 409 TEMPLATE_WORKING_COPY_MOVED if " +
+    "someone changed it: read it again and redo). Changes are not live until chaindoc_templates_publish.",
   inputSchema: TemplateUpdateSchema,
   handler: (args, { client }) => {
-    const { templateId, ...rest } = args;
-    return client.run("chaindoc_templates_update", (sdk) => {
-      const patch: Parameters<typeof sdk.templates.update>[1] = {};
-      if (rest.name !== undefined) patch.name = rest.name;
-      if (rest.description !== undefined) patch.description = rest.description;
-      if (rest.category !== undefined) patch.category = rest.category;
-      if (rest.contentJson !== undefined) patch.contentJson = rest.contentJson;
-      if (rest.variablesSchema !== undefined) patch.variablesSchema = rest.variablesSchema;
-      if (rest.signatureRequirements !== undefined)
-        patch.signatureRequirements =
-          rest.signatureRequirements as unknown as Parameters<typeof sdk.templates.update>[1]["signatureRequirements"];
-      if (rest.signerSlots !== undefined)
-        patch.signerSlots =
-          rest.signerSlots as unknown as Parameters<typeof sdk.templates.update>[1]["signerSlots"];
-      if (rest.renderConfig !== undefined)
-        patch.renderConfig =
-          rest.renderConfig as Parameters<typeof sdk.templates.update>[1]["renderConfig"];
-      return sdk.templates.update(templateId, patch);
-    });
+    const { templateId, content, ...rest } = args;
+    return client.run("chaindoc_templates_update", (sdk) =>
+      sdk.templates.update(templateId, {
+        ...rest,
+        ...(content !== undefined && { content: content as DocumentContent }),
+      }),
+    );
   },
 });
 
 export const templatesPublish = defineTool({
   name: "chaindoc_templates_publish",
   description:
-    "Publish a DRAFT template (or its current draft version). Archived templates must be restored first. " +
-    "Optional `changelog` is recorded against the new published version.",
+    "Publish the working copy as the template's next version; the published version is what documents, signature " +
+    "requests and contracts are made from. Pass the `revision` you saw. Optional `changelog`. Archived templates must " +
+    "be restored first (TEMPLATE_ARCHIVED); nothing to publish is TEMPLATE_NOTHING_TO_PUBLISH.",
   inputSchema: TemplatePublishSchema,
   handler: (args, { client }) => {
-    const payload = args.changelog !== undefined ? { changelog: args.changelog } : undefined;
+    const { templateId, ...params } = args;
     return client.run("chaindoc_templates_publish", (sdk) =>
-      sdk.templates.publish(args.templateId, payload),
+      sdk.templates.publish(templateId, Object.keys(params).length > 0 ? params : undefined),
     );
   },
 });
 
 export const templatesArchive = defineTool({
   name: "chaindoc_templates_archive",
-  description: "Move a template to ARCHIVED status to hide it from active use.",
+  description: "Archive a template: hidden from default listings and not usable until restored. Reversible with chaindoc_templates_restore.",
   inputSchema: TemplateIdSchema,
   handler: (args, { client }) =>
     client.run("chaindoc_templates_archive", (sdk) => sdk.templates.archive(args.templateId)),
@@ -187,7 +168,8 @@ export const templatesArchive = defineTool({
 
 export const templatesRestore = defineTool({
   name: "chaindoc_templates_restore",
-  description: "Restore an ARCHIVED template back to DRAFT.",
+  description:
+    "Restore an ARCHIVED template: back to PUBLISHED when it has a published version, to DRAFT when it was never published.",
   inputSchema: TemplateIdSchema,
   handler: (args, { client }) =>
     client.run("chaindoc_templates_restore", (sdk) => sdk.templates.restore(args.templateId)),
@@ -195,65 +177,41 @@ export const templatesRestore = defineTool({
 
 export const templatesDelete = defineTool({
   name: "chaindoc_templates_delete",
-  description: "Permanently delete a template from the catalog.",
-  inputSchema: TemplateIdSchema,
-  handler: (args, { client }) =>
-    client.run("chaindoc_templates_delete", (sdk) => sdk.templates.delete(args.templateId)),
+  description:
+    "PERMANENTLY delete a template: it cannot be recovered and every later call on it answers 404. " +
+    "Prefer chaindoc_templates_archive. Ask the user first; pass confirm=true only after they said yes.",
+  inputSchema: TemplateIdSchema.extend({ confirm: confirmField }),
+  handler: async (args, { client }) => {
+    requireConfirmation(args.confirm, `Permanently deleting template ${args.templateId}`);
+    return client.run("chaindoc_templates_delete", (sdk) => sdk.templates.delete(args.templateId));
+  },
 });
 
 // ---------------------------------------------------------------------------
-// Render-style schemas (existing)
+// Runtime: documents, signature requests and contracts from a published template
 // ---------------------------------------------------------------------------
 
-const VariablesSchema = z.record(z.union([z.string(), z.number(), z.boolean()]));
+const VariablesSchema = z
+  .record(z.union([z.string(), z.number(), z.boolean()]))
+  .describe("Values by field key: yes/no fields true/false, numbers as numbers, dates 'YYYY-MM-DD'.");
 
-const SigningMethodEnum = z.enum(["embedded", "delegated"]);
-
-/**
- * Slot assignments for `chaindoc_templates_send_for_signing`. Each template
- * signer key is bound to a recipient email. `signingMethod` toggles whether
- * the recipient signs in the embedded iframe or is signed-for via the delegated API.
- */
 const SigningSlotAssignmentSchema = z.object({
-  signerKey: z.string().min(1),
+  signerKey: z.string().min(1).describe("A slot key from chaindoc_templates_get (signerSlots[].signerKey)."),
   email: z.string().email(),
-  signingMethod: SigningMethodEnum.optional(),
-  signerVariables: VariablesSchema.optional(),
-});
+  account: AccountChoiceSchema.optional(),
+  signingMethod: z.literal("embedded").optional(),
+}).strict(); // delegated signing and signerVariables are refused (TEMPLATE_SLOT_NOT_SUPPORTED), not dropped
 
-/**
- * Slot assignments for `chaindoc_templates_create_contract`. Each template signer
- * key is bound to a contract role — emails come from `contragent.email`
- * (contragent role) or the API key owner (business role).
- */
 const ContractSlotAssignmentSchema = z.object({
   signerKey: z.string().min(1),
   role: z.enum(["business", "contragent"]),
-  signerVariables: VariablesSchema.optional(),
-});
-
-const ContragentSchema = z.object({
-  email: z.string().email(),
-  name: z.string().optional(),
-  phone: z.string().optional(),
-  taxId: z.string().optional(),
-  billingAddress: z
-    .object({
-      line1: z.string(),
-      line2: z.string().optional(),
-      city: z.string(),
-      state: z.string().optional(),
-      postalCode: z.string(),
-      country: z.string().length(2).describe("ISO-3166-1 alpha-2"),
-    })
-    .optional(),
 });
 
 const PaymentTermSchema = z.object({
   type: z.enum(["deposit", "recurring", "one_time"]),
   name: z.string(),
   description: z.string().optional(),
-  amount: z.string().regex(/^\d+(\.\d{1,2})?$/),
+  amount: DecimalString,
   frequency: z.enum(["weekly", "biweekly", "monthly", "quarterly", "yearly"]).optional(),
   dayOfPeriod: z.number().int().min(1).max(28).optional(),
   startDate: z.string().datetime({ offset: true }).optional(),
@@ -275,27 +233,21 @@ const CreateDocumentSchema = z.object({
   variables: VariablesSchema,
 });
 
-const SendForSigningSchema = z.object({
-  templateId: z.string().uuid(),
-  documentName: z.string().min(1).max(200),
-  documentDescription: z.string().max(2000).optional(),
-  variables: VariablesSchema,
+const SendForSigningSchema = CreateDocumentSchema.extend({
   slotAssignments: z.array(SigningSlotAssignmentSchema).min(1),
   message: z.string().max(2000).optional(),
-  deadline: z
-    .string()
-    .datetime({ offset: true })
-    .describe("ISO-8601 datetime. Required by the backend."),
+  deadline: z.string().datetime({ offset: true }).describe("ISO-8601 datetime. Required."),
   isKycRequired: z.boolean().optional(),
 });
 
 const CreateContractSchema = z.object({
   templateId: z.string().uuid(),
   variables: VariablesSchema,
-  slotAssignments: z.array(ContractSlotAssignmentSchema).min(1),
+  slotAssignments: z.array(ContractSlotAssignmentSchema).min(2).max(2),
   title: z.string().min(1).max(200),
   description: z.string().max(2000).optional(),
-  contragent: ContragentSchema,
+  contragent: ContragentInfoSchema,
+  contragentAccount: AccountChoiceSchema.optional(),
   startDate: z.string().datetime({ offset: true }).optional(),
   endDate: z.string().datetime({ offset: true }).optional(),
   autoRenew: z.boolean().optional(),
@@ -305,153 +257,54 @@ const CreateContractSchema = z.object({
   paymentTerms: z.array(PaymentTermSchema).optional(),
   signingPolicy: SigningPolicySchema.optional(),
   messageToSigners: z.string().max(2000).optional(),
-  deadline: z
-    .string()
-    .datetime({ offset: true })
-    .describe("ISO-8601 datetime. Required by the backend."),
+  deadline: z.string().datetime({ offset: true }).describe("ISO-8601 datetime. Required."),
   isKycRequired: z.boolean().optional(),
 });
 
 export const templatesCreateDocument = defineTool({
   name: "chaindoc_templates_create_document",
   description:
-    "Render a published template into a new DRAFT document with the provided variables. Produces only the document shell (no signing).",
+    "Print a PUBLISHED template with `variables` into a new DRAFT document (never sent, never published). " +
+    "A required value left empty stays on the draft as its field; a value its field cannot hold is TEMPLATE_VALUES_REFUSED.",
   inputSchema: CreateDocumentSchema,
   handler: (args, { client }) => {
-    const { templateId, ...rest } = args;
-    return client.run("chaindoc_templates_create_document", (sdk) => {
-      const payload: Parameters<typeof sdk.templates.createDocument>[1] = {
-        documentName: rest.documentName,
-        variables: rest.variables,
-      };
-      if (rest.documentDescription !== undefined) {
-        payload.documentDescription = rest.documentDescription;
-      }
-      return sdk.templates.createDocument(templateId, payload);
-    });
+    const { templateId, ...params } = args;
+    return client.run("chaindoc_templates_create_document", (sdk) =>
+      sdk.templates.createDocument(templateId, params),
+    );
   },
 });
 
 export const templatesSendForSigning = defineTool({
   name: "chaindoc_templates_send_for_signing",
   description:
-    "Render a template, create the document, and send it for signing in one call. " +
-    "Each `slotAssignments` entry binds a template signer key to a recipient email.",
+    "Print a published template and send it for signature in one call: a signature request is created and the " +
+    "signers are emailed. Fill EVERY signer slot exactly once with `slotAssignments` ({ signerKey, email, account? }); " +
+    "TEMPLATE_SLOTS_REFUSED otherwise. A required value left empty is TEMPLATE_VALUES_MISSING. Signers fill their own " +
+    "fields as they sign: delegated signing and per-signer variables are not supported. Confirm the recipients with the user first.",
   inputSchema: SendForSigningSchema,
   handler: (args, { client }) => {
     const { templateId, deadline, ...rest } = args;
-    return client.run("chaindoc_templates_send_for_signing", (sdk) => {
-      const payload: Parameters<typeof sdk.templates.sendForSigning>[1] = {
-        documentName: rest.documentName,
-        variables: rest.variables,
-        slotAssignments: rest.slotAssignments,
-        deadline: new Date(deadline),
-      };
-      if (rest.documentDescription !== undefined) {
-        payload.documentDescription = rest.documentDescription;
-      }
-      if (rest.message !== undefined) payload.message = rest.message;
-      if (rest.isKycRequired !== undefined) payload.isKycRequired = rest.isKycRequired;
-      return sdk.templates.sendForSigning(templateId, payload);
-    });
+    return client.run("chaindoc_templates_send_for_signing", (sdk) =>
+      sdk.templates.sendForSigning(templateId, { ...rest, deadline: new Date(deadline) }),
+    );
   },
 });
 
 export const templatesCreateContract = defineTool({
   name: "chaindoc_templates_create_contract",
   description:
-    "Render a contract template with variables + contragent info, create the contract, and send it for signing in one call. " +
-    "Each `slotAssignments` entry binds a template signer key to a contract role (business or contragent).",
+    "Print a published CONTRACT template as the paper of a new contract with `contragent` and start its signing. " +
+    "The template must hold exactly two signer slots: map one to role 'business' and the other to 'contragent' in " +
+    "`slotAssignments` ({ signerKey, role }). Use `contragentAccount` (from chaindoc_accounts_lookup) to propose a " +
+    "workspace to the counterparty. The counterparty is emailed: confirm the details with the user first.",
   inputSchema: CreateContractSchema,
   handler: (args, { client }) => {
     const { templateId, deadline, ...rest } = args;
-    return client.run("chaindoc_templates_create_contract", (sdk) => {
-      const payload: Parameters<typeof sdk.templates.createContract>[1] = {
-        variables: rest.variables,
-        slotAssignments: rest.slotAssignments,
-        title: rest.title,
-        contragent: rest.contragent,
-        deadline: new Date(deadline),
-      };
-      if (rest.description !== undefined) payload.description = rest.description;
-      if (rest.startDate !== undefined) payload.startDate = rest.startDate;
-      if (rest.endDate !== undefined) payload.endDate = rest.endDate;
-      if (rest.autoRenew !== undefined) payload.autoRenew = rest.autoRenew;
-      if (rest.currencyCode !== undefined) payload.currencyCode = rest.currencyCode;
-      if (rest.terminationType !== undefined) payload.terminationType = rest.terminationType;
-      if (rest.noticePeriodDays !== undefined) payload.noticePeriodDays = rest.noticePeriodDays;
-      if (rest.paymentTerms !== undefined) payload.paymentTerms = rest.paymentTerms;
-      if (rest.signingPolicy !== undefined) payload.signingPolicy = rest.signingPolicy;
-      if (rest.messageToSigners !== undefined) payload.messageToSigners = rest.messageToSigners;
-      if (rest.isKycRequired !== undefined) payload.isKycRequired = rest.isKycRequired;
-      return sdk.templates.createContract(templateId, payload);
-    });
+    return client.run("chaindoc_templates_create_contract", (sdk) =>
+      sdk.templates.createContract(templateId, { ...rest, deadline: new Date(deadline) }),
+    );
   },
-});
-
-// ---------------------------------------------------------------------------
-// Preview schemas and tools
-// ---------------------------------------------------------------------------
-
-const PreviewVariablesSchema = z.record(z.union([z.string(), z.number(), z.boolean()]));
-
-const PreviewSavedSchema = z.object({
-  templateId: z.string().uuid(),
-  variables: PreviewVariablesSchema.optional(),
-});
-
-const PreviewUnsavedSchema = z.object({
-  contentJson: PassThroughObject,
-  renderConfig: PassThroughObject.optional(),
-  variables: PreviewVariablesSchema.optional(),
-});
-
-export const templatesPreviewPdf = defineTool({
-  name: "chaindoc_templates_preview_pdf",
-  description:
-    "Render a saved template into a preview PDF. Rate limit: 5/60s per client IP. " +
-    "On stdio → disk path; on HTTP → inline base64 up to CHAINDOC_INLINE_DOWNLOAD_MAX_BYTES.",
-  inputSchema: PreviewSavedSchema,
-  handler: (args, { client, downloads }) =>
-    client.run("chaindoc_templates_preview_pdf", async (sdk) =>
-      deliverDownload(
-        downloads,
-        await sdk.templates.previewPdf(
-          args.templateId,
-          args.variables !== undefined ? { variables: args.variables } : undefined,
-        ),
-        { tool: "chaindoc_templates_preview_pdf" },
-      ),
-    ),
-});
-
-export const templatesPreviewHtml = defineTool({
-  name: "chaindoc_templates_preview_html",
-  description:
-    "Render a saved template into preview HTML; returns { html }. Rate limit: 5/60s per client IP.",
-  inputSchema: PreviewSavedSchema,
-  handler: (args, { client }) =>
-    client.run("chaindoc_templates_preview_html", (sdk) =>
-      sdk.templates.previewHtml(
-        args.templateId,
-        args.variables !== undefined ? { variables: args.variables } : undefined,
-      ),
-    ),
-});
-
-export const templatesPreviewUnsavedPdf = defineTool({
-  name: "chaindoc_templates_preview_unsaved_pdf",
-  description:
-    "Render ad-hoc Tiptap contentJson into a preview PDF without saving a template. Rate limit: 5/60s.",
-  inputSchema: PreviewUnsavedSchema,
-  handler: (args, { client, downloads }) =>
-    client.run("chaindoc_templates_preview_unsaved_pdf", async (sdk) =>
-      deliverDownload(
-        downloads,
-        await sdk.templates.previewUnsavedPdf(args),
-        { tool: "chaindoc_templates_preview_unsaved_pdf" },
-      ),
-    ),
 });
 
 export const templatesTools: ToolDefinition<unknown>[] = [
@@ -467,7 +320,4 @@ export const templatesTools: ToolDefinition<unknown>[] = [
   templatesCreateDocument as ToolDefinition<unknown>,
   templatesSendForSigning as ToolDefinition<unknown>,
   templatesCreateContract as ToolDefinition<unknown>,
-  templatesPreviewPdf as ToolDefinition<unknown>,
-  templatesPreviewHtml as ToolDefinition<unknown>,
-  templatesPreviewUnsavedPdf as ToolDefinition<unknown>,
 ];

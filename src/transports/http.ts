@@ -5,13 +5,15 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { buildServer } from "../server.js";
 import { loadConfig } from "../core/config.js";
 import { createLogger } from "../core/logger.js";
+import { HostedConfigError, readHostedCredentials, type HostedCredentials } from "./auth.js";
 
 /**
  * Hosted HTTP/SSE transport.
  *
  * Auth precedence:
  *   1. Authorization: Bearer <key> on the incoming request.
- *   2. CHAINDOC_API_KEY env var (default).
+ *   2. Smithery's ?config=<base64 JSON> (chaindocApiKey, chaindocEnvironment).
+ *   3. CHAINDOC_API_KEY env var (default).
  *
  * If neither is present we return 401.
  */
@@ -27,11 +29,19 @@ async function main(): Promise<void> {
 
   app.all("/mcp", async (req: Request, res: Response) => {
     const requestId = randomUUID();
-    const headerAuth = req.headers.authorization;
-    const headerKey =
-      typeof headerAuth === "string" && headerAuth.startsWith("Bearer ")
-        ? headerAuth.slice("Bearer ".length).trim()
-        : undefined;
+    let creds: HostedCredentials;
+    try {
+      creds = readHostedCredentials(req.headers.authorization, req.query["config"]);
+    } catch (err) {
+      if (err instanceof HostedConfigError) {
+        res.status(400).json({ error: "invalid_config", message: err.message });
+        return;
+      }
+      logger.error({ err, requestId }, "Reading hosted credentials failed");
+      res.status(500).json({ error: "internal_error", requestId });
+      return;
+    }
+    const headerKey = creds.apiKey;
     const apiKey = headerKey ?? config.apiKey;
 
     if (!apiKey) {
@@ -50,7 +60,7 @@ async function main(): Promise<void> {
 
     const server = buildServer({
       apiKey,
-      environment: config.environment,
+      environment: creds.environment ?? config.environment,
       maxRps: config.maxRps,
       timeoutMs: config.timeoutMs,
       retry: {
@@ -59,6 +69,7 @@ async function main(): Promise<void> {
         maxDelayMs: config.retryMaxDelayMs,
       },
       logger: reqLogger,
+      transport: "http",
       downloads: {
         mode: config.downloadMode === "auto" ? "inline" : config.downloadMode,
         dir: config.downloadDir,

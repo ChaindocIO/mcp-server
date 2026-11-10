@@ -92,12 +92,24 @@ function convert(def: ZodDef): Record<string, unknown> {
     case "ZodNullable": {
       const inner = def.innerType!;
       const result = convert(inner._def);
+      // A description set on the wrapper (`.optional().describe(...)`) wins over the inner one.
+      if (description) result["description"] = description;
       if (def.typeName === "ZodNullable") {
         const t = result["type"];
         if (typeof t === "string") result["type"] = [t, "null"];
       }
       return result;
     }
+    case "ZodRecord": {
+      base["type"] = "object";
+      const valueType = (def as unknown as { valueType: ZodTypeAny }).valueType;
+      base["additionalProperties"] = zodToJsonSchema(valueType);
+      return base;
+    }
+    case "ZodNull":
+      base["type"] = "null";
+      return base;
+    case "ZodDiscriminatedUnion":
     case "ZodUnion": {
       base["anyOf"] = (def.options ?? []).map((o) => zodToJsonSchema(o));
       return base;

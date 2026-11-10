@@ -1,6 +1,6 @@
 {
   "name": "@chaindoc_io/mcp-server",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Model Context Protocol server for Chaindoc — blockchain-verified document management, e-signatures, and embedded signing.",
   "license": "MIT",
   "homepage": "https://chaindoc.io",
@@ -46,7 +46,7 @@
     "dev:http": "tsx src/transports/http.ts",
     "start:stdio": "node dist/transports/stdio.js",
     "start:http": "node dist/transports/http.js",
-    "lint": "eslint . --ext .ts",
+    "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -65,20 +65,20 @@
     "anthropic"
   ],
   "dependencies": {
-    "@chaindoc_io/server-sdk": "^2.1.0",
-    "@modelcontextprotocol/sdk": "^1.0.0",
-    "express": "^4.21.0",
-    "pino": "^9.5.0",
-    "zod": "^3.23.8"
+    "@chaindoc_io/server-sdk": "^3.0.0",
+    "@modelcontextprotocol/sdk": "1.29.0",
+    "express": "4.22.2",
+    "pino": "9.14.0",
+    "zod": "3.25.76"
   },
   "devDependencies": {
-    "@types/express": "^5.0.0",
-    "@types/node": "^22.7.0",
-    "@typescript-eslint/eslint-plugin": "^8.10.0",
-    "@typescript-eslint/parser": "^8.10.0",
-    "eslint": "^9.13.0",
-    "tsx": "^4.19.0",
-    "typescript": "^5.6.0",
-    "vitest": "^2.1.0"
+    "@types/express": "5.0.6",
+    "@types/node": "22.19.19",
+    "@typescript-eslint/eslint-plugin": "8.59.4",
+    "@typescript-eslint/parser": "8.59.4",
+    "eslint": "9.39.4",
+    "tsx": "4.22.2",
+    "typescript": "5.9.3",
+    "vitest": "2.1.9"
   }
 }
