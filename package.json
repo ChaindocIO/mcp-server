@@ -65,7 +65,7 @@
     "anthropic"
   ],
   "dependencies": {
-    "@chaindoc_io/server-sdk": "file:../int-b",
+    "@chaindoc_io/server-sdk": "^3.0.0",
     "@modelcontextprotocol/sdk": "1.29.0",
     "express": "4.22.2",
     "pino": "9.14.0",
