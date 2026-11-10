@@ -11,6 +11,8 @@ send [e-signature requests](https://chaindoc.io/signing), render
 [contract payments](https://chaindoc.io/payments), and
 [verify any document](https://chaindoc.io/verify-document) on chain.
 
+What changed in November 2026 → server-sdk `docs/WHATS-CHANGED-2026-11.md`
+
 > **Status:** v0.3.0 (124 tools). Built against the
 > [Chaindoc REST API and SDK docs](https://chaindoc.io/docs). Runtime depends on
 > [`@chaindoc_io/server-sdk@^3.0.0`](https://www.npmjs.com/package/@chaindoc_io/server-sdk).
