@@ -33,6 +33,31 @@ export const ConfigSchema = z.object({
   downloadMode: z.enum(["auto", "disk", "inline"]).default("auto"),
   downloadDir: z.string().default(join(tmpdir(), "chaindoc-mcp")),
   inlineDownloadMaxBytes: z.coerce.number().int().positive().default(4 * 1024 * 1024),
+  // JSON object { "<integrationUuid>": "<secret>" } used only by chaindoc_processes_respond. Local (stdio)
+  // use only: the hosted transport never receives it.
+  processIntegrationSecrets: z
+    .string()
+    .optional()
+    .transform((raw, ctx): Record<string, string> | undefined => {
+      if (raw === undefined || raw === "") return undefined;
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: "must be a JSON object" });
+        return z.NEVER;
+      }
+      if (
+        typeof parsed !== "object" ||
+        parsed === null ||
+        Array.isArray(parsed) ||
+        !Object.values(parsed).every((v) => typeof v === "string" && v.length > 0)
+      ) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: "must be a JSON object of non-empty strings" });
+        return z.NEVER;
+      }
+      return parsed as Record<string, string>;
+    }),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;
@@ -60,6 +85,7 @@ export function loadConfig(opts: LoadConfigOptions = {}): Config {
     downloadMode: process.env["CHAINDOC_DOWNLOAD_MODE"],
     downloadDir: process.env["CHAINDOC_DOWNLOAD_DIR"],
     inlineDownloadMaxBytes: process.env["CHAINDOC_INLINE_DOWNLOAD_MAX_BYTES"],
+    processIntegrationSecrets: process.env["CHAINDOC_PROCESS_INTEGRATION_SECRETS"],
   });
 
   if (!parsed.success) {

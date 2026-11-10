@@ -18,6 +18,9 @@ async function main(): Promise<void> {
       maxDelayMs: config.retryMaxDelayMs,
     },
     logger,
+    ...(config.processIntegrationSecrets !== undefined && {
+      integrationSecrets: config.processIntegrationSecrets,
+    }),
     downloads: {
       mode: config.downloadMode === "auto" ? "disk" : config.downloadMode,
       dir: config.downloadDir,

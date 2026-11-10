@@ -26,6 +26,8 @@ export interface BuildServerOptions {
   retry?: { maxRetries?: number; baseDelayMs?: number; maxDelayMs?: number };
   logger?: Logger;
   downloads?: { mode?: DownloadAdapterMode; dir?: string; inlineMaxBytes?: number };
+  /** Secrets of connected systems by integration uuid (stdio only; see ToolContext). */
+  integrationSecrets?: Readonly<Record<string, string>>;
 }
 
 /**
@@ -53,7 +55,7 @@ export function buildServer(opts: BuildServerOptions): Server {
   const server = new Server(
     {
       name: "chaindoc-mcp",
-      version: "0.2.0",
+      version: "0.3.0",
     },
     {
       capabilities: {
@@ -90,7 +92,12 @@ export function buildServer(opts: BuildServerOptions): Server {
       });
     }
     try {
-      const result = await tool.handler(parsed.data, { client, logger, downloads });
+      const result = await tool.handler(parsed.data, {
+        client,
+        logger,
+        downloads,
+        ...(opts.integrationSecrets !== undefined && { integrationSecrets: opts.integrationSecrets }),
+      });
       return {
         content: [
           {

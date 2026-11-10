@@ -10,6 +10,11 @@ export interface ToolContext {
   client: ChaindocClient;
   logger: Logger;
   downloads: DownloadAdapterConfig;
+  /**
+   * Secrets of connected systems by integration uuid, from the operator's environment (stdio only).
+   * They are never a tool argument, so they never reach the model or its transcript.
+   */
+  integrationSecrets?: Readonly<Record<string, string>>;
 }
 
 /**

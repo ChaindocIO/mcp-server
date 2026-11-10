@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { defineTool, type ToolDefinition } from "./types.js";
+import { AccountChoiceSchema, ContragentInfoSchema } from "./schemas.js";
 
 /**
  * Contracts API
@@ -30,23 +31,6 @@ const PaymentTermSchema = z.object({
   autoCharge: z.boolean().optional(),
 });
 
-const ContragentSchema = z.object({
-  email: z.string().email(),
-  name: z.string().optional(),
-  phone: z.string().optional(),
-  taxId: z.string().optional(),
-  billingAddress: z
-    .object({
-      line1: z.string(),
-      line2: z.string().optional(),
-      city: z.string(),
-      state: z.string().optional(),
-      postalCode: z.string(),
-      country: z.string().length(2).describe("ISO-3166-1 alpha-2"),
-    })
-    .optional(),
-});
-
 /**
  * Contract signing policy. The contragent slot is always 'embedded' — only the
  * business slot can be 'delegated' (signed via API by the key owner).
@@ -60,7 +44,13 @@ const CreateInputSchema = z.object({
   documentId: z.string().uuid(),
   title: z.string().min(1).max(200),
   description: z.string().max(2000).optional(),
-  contragent: ContragentSchema,
+  contragent: ContragentInfoSchema.describe(
+    "The counterparty's billing identity (legalName, vatNumber, registrationNumber, entityType, billingAddress...). " +
+      "It prints on invoices and on the tax treatment's VAT rules.",
+  ),
+  contragentAccount: AccountChoiceSchema.optional().describe(
+    "The workspace option chaindoc_accounts_lookup offered for the counterparty's address, proposed to them. Omit for their personal account.",
+  ),
   startDate: z.string().datetime({ offset: true }).optional(),
   endDate: z.string().datetime({ offset: true }).optional(),
   autoRenew: z.boolean().optional(),
@@ -70,6 +60,13 @@ const CreateInputSchema = z.object({
   paymentTerms: z.array(PaymentTermSchema).optional(),
   paymentMethodRequired: z.boolean().optional(),
   preferredPaymentMethodType: PreferredPaymentMethodEnum.optional(),
+  stripePaymentAllowed: z
+    .boolean()
+    .optional()
+    .describe(
+      "May invoices on this contract be paid by card via Stripe? Omit to inherit the business default; false is a " +
+        "deliberately manual contract. true without a connected Stripe account is refused (STRIPE_SETTING_REQUIRES_STRIPE).",
+    ),
   signingPolicy: SigningPolicySchema.optional(),
 });
 
@@ -223,33 +220,46 @@ export const contractsTerminate = defineTool({
     ),
 });
 
+const CounterpartyOneOf = (v: { contragentEmail?: string | undefined; contragent?: { email: string } | undefined }, ctx: z.RefinementCtx): void => {
+  if (v.contragentEmail === undefined && v.contragent === undefined) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Give `contragent` (with email) or `contragentEmail`." });
+  }
+  if (v.contragentEmail !== undefined && v.contragent !== undefined && v.contragentEmail !== v.contragent.email) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "`contragentEmail` and `contragent.email` must match." });
+  }
+};
+
+const CounterpartyFields = {
+  contragentEmail: z.string().email().optional(),
+  contragent: ContragentInfoSchema.optional().describe("Full billing identity; what it carries wins over the flat fields."),
+  contragentAccount: AccountChoiceSchema.optional(),
+  contragentName: z.string().optional(),
+};
+
 const CreateEmptySchema = z.object({
   title: z.string().min(1).max(200),
   description: z.string().max(2000).optional(),
-  contragentEmail: z.string().email(),
-  contragentName: z.string().optional(),
+  ...CounterpartyFields,
   currencyCode: z.string().length(3).optional(),
-});
+}).superRefine(CounterpartyOneOf);
 
 const CreateMinimalSchema = z.object({
   documentId: z.string().uuid(),
   title: z.string().min(1).max(200),
   description: z.string().max(2000).optional(),
-  contragentEmail: z.string().email(),
-  contragentName: z.string().optional(),
+  ...CounterpartyFields,
   skipPaymentSetup: z.boolean().optional(),
-});
+}).superRefine(CounterpartyOneOf);
 
 const ImportSchema = z.object({
   documentId: z.string().uuid(),
   title: z.string().min(1).max(200),
   description: z.string().max(2000).optional(),
-  contragentEmail: z.string().email(),
-  contragentName: z.string().optional(),
+  ...CounterpartyFields,
   currencyCode: z.string().length(3).optional(),
   startDate: z.string().datetime({ offset: true }).optional(),
   endDate: z.string().datetime({ offset: true }).optional(),
-});
+}).superRefine(CounterpartyOneOf);
 
 const UpdateSchema = z.object({
   contractId: z.string().uuid(),
@@ -260,6 +270,8 @@ const UpdateSchema = z.object({
   autoRenew: z.boolean().optional(),
   terminationType: z.enum(["mutual_approval", "one_side"]).optional(),
   noticePeriodDays: z.number().int().nonnegative().optional(),
+  contragent: ContragentInfoSchema.optional(),
+  contragentAccount: AccountChoiceSchema.optional(),
 });
 
 const AttachDocumentSchema = z.object({

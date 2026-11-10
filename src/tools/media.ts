@@ -1,39 +1,15 @@
-import { readFile } from "node:fs/promises";
-import { Buffer } from "node:buffer";
 import { z } from "zod";
 import { defineTool, type ToolDefinition } from "./types.js";
+import { FileInputSchema, resolveFile } from "./file-input.js";
 
 /**
- * Media API — POST /media/upload (multipart, field 'media').
+ * Files.
  *
- * Up to 10 files per request, max 250 MB per file. Three input modes:
- *   - filePath: local file on the MCP host (stdio transport only)
- *   - url:      publicly fetchable URL (server fetches on the user's behalf)
- *   - inline:   base64-encoded contents
+ *   POST /api/v1/media/upload   (temporary upload; only for a saved-signature image)
+ *   POST /api/v1/media/chunked  (resumable upload into the workspace's Storage)
+ *
+ * A document's file goes through Storage and conversion, never through `media/upload`.
  */
-
-const FileInputSchema = z.union([
-  z.object({
-    kind: z.literal("filePath"),
-    path: z.string().describe("Absolute path on the MCP server host."),
-    name: z.string().optional(),
-    mimeType: z
-      .string()
-      .describe("e.g. application/pdf, image/png, video/mp4."),
-  }),
-  z.object({
-    kind: z.literal("url"),
-    url: z.string().url(),
-    name: z.string().optional(),
-    mimeType: z.string(),
-  }),
-  z.object({
-    kind: z.literal("inline"),
-    name: z.string(),
-    mimeType: z.string(),
-    base64Content: z.string().describe("Base64-encoded file contents."),
-  }),
-]);
 
 const UploadInputSchema = z.object({
   files: z.array(FileInputSchema).min(1).max(10),
@@ -41,60 +17,41 @@ const UploadInputSchema = z.object({
 
 type UploadInput = z.infer<typeof UploadInputSchema>;
 
-const MAX_BYTES_PER_FILE = 250 * 1024 * 1024;
-
-async function toBlob(file: UploadInput["files"][number]): Promise<File | Blob> {
-  switch (file.kind) {
-    case "filePath": {
-      const buf = await readFile(file.path);
-      enforceSize(buf.byteLength, file.path);
-      return new File([buf], file.name ?? file.path.split("/").pop() ?? "upload", {
-        type: file.mimeType,
-      });
-    }
-    case "url": {
-      const resp = await fetch(file.url);
-      if (!resp.ok) {
-        throw Object.assign(new Error(`Failed to fetch ${file.url}: ${resp.status}`), {
-          status: resp.status,
-        });
-      }
-      const buf = Buffer.from(await resp.arrayBuffer());
-      enforceSize(buf.byteLength, file.url);
-      return new File([buf], file.name ?? file.url.split("/").pop() ?? "upload", {
-        type: file.mimeType,
-      });
-    }
-    case "inline": {
-      const buf = Buffer.from(file.base64Content, "base64");
-      enforceSize(buf.byteLength, file.name);
-      return new File([buf], file.name, { type: file.mimeType });
-    }
-  }
-}
-
-function enforceSize(bytes: number, label: string): void {
-  if (bytes > MAX_BYTES_PER_FILE) {
-    throw Object.assign(
-      new Error(`File ${label} is ${bytes} bytes; Chaindoc max is ${MAX_BYTES_PER_FILE}.`),
-      { status: 413 },
-    );
-  }
-}
-
 export const mediaUpload: ToolDefinition<UploadInput> = defineTool({
   name: "chaindoc_media_upload",
   description:
-    "Upload up to 10 files (PDF/DOC/XLS/PPT/TXT/JPG/PNG/GIF/WEBP/SVG/MP4/AVI/MOV/WMV) " +
-    "to Chaindoc temporary storage. Returns media handles you pass to chaindoc_documents_create. " +
-    "Max 250 MB per file. Provide each file as filePath, url, or base64 inline.",
+    "Upload up to 10 images to Chaindoc temporary storage. Use it ONLY for a saved-signature image: " +
+    "pass the returned media handle to chaindoc_signatures_create_signature. " +
+    "Do not use it for documents: a document's file goes through chaindoc_storage_upload_file or " +
+    "chaindoc_documents_create_from_file (it is converted into a text document). Max 250 MB per file.",
   inputSchema: UploadInputSchema,
   async handler(args, { client }) {
-    const blobs = await Promise.all(args.files.map(toBlob));
-    return client.run("chaindoc_media_upload", (sdk) => sdk.media.upload(blobs));
+    const files = await Promise.all(args.files.map(resolveFile));
+    return client.run("chaindoc_media_upload", (sdk) =>
+      sdk.media.upload(files.map((f) => f.blob)),
+    );
+  },
+});
+
+const StorageUploadSchema = z.object({ file: FileInputSchema });
+
+export const storageUploadFile: ToolDefinition<z.infer<typeof StorageUploadSchema>> = defineTool({
+  name: "chaindoc_storage_upload_file",
+  description:
+    "Upload one file (PDF, DOCX, ...) into the workspace's Storage with a resumable chunked upload. " +
+    "Returns { storageFileId }. Use that id with chaindoc_documents_create_from_storage, or as `storageFileId` " +
+    "of chaindoc_documents_update. Counts against the workspace storage limit (STORAGE_LIMIT_REACHED). " +
+    "To make a document straight from a file, use chaindoc_documents_create_from_file instead.",
+  inputSchema: StorageUploadSchema,
+  async handler(args, { client }) {
+    const { blob, filename } = await resolveFile(args.file);
+    return client.run("chaindoc_storage_upload_file", (sdk) =>
+      sdk.media.uploadChunked(blob, { filename }),
+    );
   },
 });
 
 export const mediaTools: ToolDefinition<unknown>[] = [
   mediaUpload as ToolDefinition<unknown>,
+  storageUploadFile as ToolDefinition<unknown>,
 ];

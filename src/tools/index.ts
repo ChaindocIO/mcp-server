@@ -12,11 +12,15 @@ import { invoicesTools } from "./invoices.js";
 import { transactionsTools } from "./transactions.js";
 import { templatesTools } from "./templates.js";
 import { webhooksTools } from "./webhooks.js";
+import { conversionsTools } from "./conversions.js";
+import { financeTools } from "./finance.js";
+import { processesTools } from "./processes.js";
 
 export const allTools: ToolDefinition<unknown>[] = [
   ...accountTools,
   ...mediaTools,
   ...documentsTools,
+  ...conversionsTools,
   ...signaturesTools,
   ...embeddedTools,
   ...contractsTools,
@@ -25,6 +29,8 @@ export const allTools: ToolDefinition<unknown>[] = [
   ...contractsAgreementsTools,
   ...invoicesTools,
   ...transactionsTools,
+  ...financeTools,
+  ...processesTools,
   ...templatesTools,
   ...webhooksTools,
 ];

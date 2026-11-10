@@ -1,91 +1,106 @@
 import { z } from "zod";
 import { defineTool, type ToolDefinition } from "./types.js";
+import type { DocumentContent } from "@chaindoc_io/server-sdk";
 import { deliverDownload } from "../core/downloads.js";
+import {
+  AccessEmailSchema,
+  AccessTypeSchema,
+  DocumentContentSchema,
+  MetaTagSchema,
+} from "./schemas.js";
+import { FileInputSchema, resolveFile } from "./file-input.js";
 
 /**
  * Documents API
- *   POST   /api/v1/documents
- *   PUT    /api/v1/documents/:documentId
+ *   POST   /api/v1/documents                       (text from `content`; a file answers 202 with a conversion)
+ *   POST   /api/v1/documents/from-storage          (a Storage file -> conversion)
+ *   PUT    /api/v1/documents/:documentId           (next version from `content` or a Storage file)
+ *   GET    /api/v1/documents/:documentId/content   (text, roles, fields)
+ *   POST   /api/v1/documents/:documentId/conversion
+ *   POST   /api/v1/documents/:documentId/signature-block
  *   PUT    /api/v1/documents/:documentId/rights
  *   POST   /api/v1/documents/verify
  *   GET    /api/v1/documents/versions/:versionId/verification
+ *
+ * A document is a TEXT with chips (fields and signer places are chips in the text). A person's file is
+ * converted into such a text through Storage; the API never signs a file as it is.
  */
 
-const MediaTypeEnum = z.enum(["document", "image", "video", "text", "call_to_action"]);
-
-const MediaHandleSchema = z.object({
-  type: MediaTypeEnum.describe("Media type returned by chaindoc_media_upload."),
-  name: z.string(),
-  key: z.string(),
-  url: z.string(),
-  hash: z.string().optional(),
-  size: z.number().optional(),
-  thumbnail: z.string().optional(),
-  bluredThumbnail: z.string().optional(),
-  compressed: z.string().optional(),
-});
-
-const MetaPairSchema = z.object({
-  key: z.string(),
-  value: z.string(),
-});
-
-const AccessEmailSchema = z.object({
-  email: z.string().email(),
-  level: z.enum(["read", "write"]),
-});
-
-const AccessRoleSchema = z.object({
-  roleId: z.number().int().positive(),
-  level: z.enum(["read", "write"]),
-});
-
-const DocumentStatusEnum = z.enum([
-  "draft",
-  "published",
-  "archived",
-  "pending_signature",
-  "signed",
-]);
-
-const DocumentStatusForCreateEnum = z.enum(["draft", "published"]);
-
-const AccessTypeEnum = z.enum(["private", "public", "restricted", "team"]);
+const StatusSchema = z.enum(["draft", "published"]);
 
 const CreateInputSchema = z.object({
   name: z.string().min(1).max(200),
-  description: z.string().max(2000).describe("Required by the backend; pass an empty string if unused."),
-  media: MediaHandleSchema.describe("Returned by chaindoc_media_upload."),
-  meta: z.array(MetaPairSchema).describe("Required by the backend; pass [] if unused."),
-  hashtags: z
-    .array(z.string())
-    .max(20)
-    .describe("Required by the backend; pass [] if unused."),
-  status: DocumentStatusForCreateEnum.describe(
-    "When status='published', the version is queued for blockchain anchoring.",
+  description: z.string().max(2000).optional(),
+  status: StatusSchema.describe(
+    "'draft' keeps it editable. 'published' queues the version for blockchain anchoring and cannot be undone.",
   ),
-  isForSigning: z.boolean().optional(),
-  accessType: AccessTypeEnum.optional(),
+  content: DocumentContentSchema,
+  hashtags: z.array(z.string()).max(20).optional(),
+  meta: z.array(MetaTagSchema).optional(),
+  accessType: AccessTypeSchema.optional(),
   accessEmails: z.array(AccessEmailSchema).optional(),
-  accessRoles: z.array(AccessRoleSchema).optional(),
+  idempotencyKey: z
+    .string()
+    .optional()
+    .describe("Reuse the same key to retry safely: the same key answers the same document."),
+}).strict();
+
+const FromFileInputSchema = z.object({
+  file: FileInputSchema,
+  name: z.string().min(1).max(200),
+  description: z.string().max(2000).optional(),
+  hashtags: z.array(z.string()).max(20).optional(),
+  accessType: AccessTypeSchema.optional(),
+  accessEmails: z.array(AccessEmailSchema).optional(),
+  idempotencyKey: z.string().optional(),
 });
 
-const UpdateInputSchema = z.object({
-  documentId: z.string().uuid(),
-  name: z.string(),
-  description: z.string(),
-  media: MediaHandleSchema,
-  meta: z.array(MetaPairSchema),
-  hashtags: z.array(z.string()),
-  status: DocumentStatusForCreateEnum,
-  isForSigning: z.boolean().optional(),
+const FromStorageInputSchema = z.object({
+  storageFileId: z.string().min(1).describe("From chaindoc_storage_upload_file."),
+  name: z.string().min(1).max(200),
+  description: z.string().max(2000).optional(),
+  hashtags: z.array(z.string()).max(20).optional(),
+  accessType: AccessTypeSchema.optional(),
+  accessEmails: z.array(AccessEmailSchema).optional(),
+  idempotencyKey: z.string().optional(),
 });
+
+const UpdateInputSchema = z
+  .object({
+    documentId: z.string().uuid(),
+    name: z.string().min(1).max(200),
+    description: z.string().max(2000).optional(),
+    status: StatusSchema,
+    content: DocumentContentSchema.optional(),
+    baseVersionId: z
+      .string()
+      .uuid()
+      .optional()
+      .describe("With `content`: the version you read the text from (else 409 DOCUMENT_WRITING_BASE_MOVED)."),
+    storageFileId: z.string().min(1).optional().describe("A READY Storage file; it is converted (202)."),
+    hashtags: z.array(z.string()).max(20).optional(),
+    meta: z.array(MetaTagSchema).optional(),
+    idempotencyKey: z.string().optional(),
+  })
+  .strict()
+  .superRefine((v, ctx) => {
+    const hasContent = v.content !== undefined;
+    const hasFile = v.storageFileId !== undefined;
+    if (hasContent === hasFile) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Give exactly one of `content` or `storageFileId`." });
+    }
+    if (hasContent && v.baseVersionId === undefined) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "`content` needs `baseVersionId` (the version you read)." });
+    }
+    if (hasFile && v.status !== "draft") {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "A version made from a file lands as a draft: status must be 'draft'." });
+    }
+  });
 
 const RightsInputSchema = z.object({
   documentId: z.string().uuid(),
-  accessType: AccessTypeEnum,
+  accessType: AccessTypeSchema,
   accessEmails: z.array(AccessEmailSchema).optional(),
-  accessRoles: z.array(AccessRoleSchema).optional(),
 });
 
 const VerifyInputSchema = z.object({
@@ -101,40 +116,119 @@ const VerificationStatusInputSchema = z.object({ versionId: z.string().uuid() })
 export const documentsCreate = defineTool({
   name: "chaindoc_documents_create",
   description:
-    "Create a blockchain-anchored document from an uploaded media handle. " +
-    "When status='published', the version is queued for blockchain anchoring. " +
-    "Backend requires `description`, `meta`, `hashtags`, and `status` — pass empty strings/arrays if unused.",
+    "Create a TEXT document directly from `content` (engine content v2; fields and signer places are chips in " +
+    "the text, a 'template' mode text holds the signer roles). Answers 201 with the made document. " +
+    "To make a document from a person's file use chaindoc_documents_create_from_file instead (it is converted). " +
+    "Prefer status='draft'; 'published' queues blockchain anchoring and cannot be undone.",
   inputSchema: CreateInputSchema,
   handler: (args, { client }) =>
-    client.run("chaindoc_documents_create", (sdk) =>
-      sdk.documents.create({
-        name: args.name,
-        description: args.description,
-        media: args.media,
-        meta: args.meta,
-        hashtags: args.hashtags,
-        status: args.status,
-        ...(args.isForSigning !== undefined && { isForSigning: args.isForSigning }),
-        ...(args.accessType !== undefined && { accessType: args.accessType }),
-        ...(args.accessEmails !== undefined && { accessEmails: args.accessEmails }),
-        ...(args.accessRoles !== undefined && { accessRoles: args.accessRoles }),
-      }),
-    ),
+    client.run("chaindoc_documents_create", (sdk) => {
+      const { content, ...rest } = args;
+      return sdk.documents.create({ ...rest, content: content as DocumentContent });
+    }),
+});
+
+export const documentsCreateFromFile = defineTool({
+  name: "chaindoc_documents_create_from_file",
+  description:
+    "Turn a person's file (PDF, DOCX, ...) into a text document: uploads it to Storage and starts the conversion. " +
+    "Answers 202 with { conversion: { id, status: 'converting' } } - NOT a document yet. The document is made as a " +
+    "DRAFT when the conversion is ready: call chaindoc_conversions_wait with the id, then use the returned documentId " +
+    "and versionId. Uses the workspace AI budget and storage (AI_LIMIT_REACHED, STORAGE_LIMIT_REACHED refuse before " +
+    "anything is spent). The converted text has no signature places yet: add them with chaindoc_documents_add_signature_block.",
+  inputSchema: FromFileInputSchema,
+  handler: async (args, { client }) => {
+    const { file, ...params } = args;
+    const { blob, filename } = await resolveFile(file);
+    return client.run("chaindoc_documents_create_from_file", (sdk) =>
+      sdk.documents.createFromFile(blob, params, { filename }),
+    );
+  },
+});
+
+export const documentsCreateFromStorage = defineTool({
+  name: "chaindoc_documents_create_from_storage",
+  description:
+    "Start converting a file already in Storage (storageFileId from chaindoc_storage_upload_file) into a draft text " +
+    "document. Answers 202 with a conversion: wait for it with chaindoc_conversions_wait. The original stays in Storage.",
+  inputSchema: FromStorageInputSchema,
+  handler: (args, { client }) =>
+    client.run("chaindoc_documents_create_from_storage", (sdk) => sdk.documents.createFromStorage(args)),
 });
 
 export const documentsUpdate = defineTool({
   name: "chaindoc_documents_update",
   description:
-    "Update a document by creating a new version. Previous versions are preserved for audit. " +
-    "All version fields (`name`, `description`, `media`, `meta`, `hashtags`, `status`) are required.",
+    "Make the NEXT VERSION of a document (previous versions are preserved for audit). Give exactly one of: " +
+    "`content` + `baseVersionId` (the version you read; answers 200, 409 DOCUMENT_WRITING_BASE_MOVED if the document " +
+    "moved) or `storageFileId` (a Storage file, converted asynchronously: answers 202 with a conversion, wait with " +
+    "chaindoc_conversions_wait). A file document made before documents became text cannot be edited: convert it first " +
+    "(chaindoc_documents_convert).",
   inputSchema: UpdateInputSchema,
   handler: (args, { client }) => {
-    const { documentId, isForSigning, ...patch } = args;
-    return client.run("chaindoc_documents_update", (sdk) =>
-      sdk.documents.update(documentId, {
-        ...patch,
-        ...(isForSigning !== undefined && { isForSigning }),
-      }),
+    const { documentId, content, storageFileId, baseVersionId, ...common } = args;
+    if (content !== undefined && baseVersionId !== undefined) {
+      return client.run("chaindoc_documents_update", (sdk) =>
+        sdk.documents.update(documentId, { ...common, content: content as DocumentContent, baseVersionId }),
+      );
+    }
+    if (storageFileId !== undefined) {
+      return client.run("chaindoc_documents_update", (sdk) =>
+        sdk.documents.update(documentId, { ...common, storageFileId, status: "draft" }),
+      );
+    }
+    throw new Error("chaindoc_documents_update: give `content` + `baseVersionId`, or `storageFileId`.");
+  },
+});
+
+export const documentsGetContent = defineTool({
+  name: "chaindoc_documents_get_content",
+  description:
+    "Read a version's text with its signer `roles` (what `recipients[].role` of chaindoc_signatures_create_request binds to) " +
+    "and `fields`. Defaults to the current version; the answer names the versionId to send. A version that is a file " +
+    "holds no text: DOCUMENT_FILE_CONVERTS - convert it with chaindoc_documents_convert.",
+  inputSchema: z.object({ documentId: z.string().uuid(), versionId: z.string().uuid().optional() }),
+  handler: (args, { client }) =>
+    client.run("chaindoc_documents_get_content", (sdk) =>
+      sdk.documents.getContent(args.documentId, args.versionId !== undefined ? { versionId: args.versionId } : undefined),
+    ),
+});
+
+export const documentsConvert = defineTool({
+  name: "chaindoc_documents_convert",
+  description:
+    "Convert a FILE document (made before documents became text; chaindoc_documents_get shows format='file', " +
+    "sendable=false) into its next version as text. Answers 202 with a conversion: wait with chaindoc_conversions_wait. " +
+    "The old version, its signature requests and verification stay untouched. Uses the workspace AI budget.",
+  inputSchema: z.object({ documentId: z.string().uuid(), idempotencyKey: z.string().optional() }),
+  handler: (args, { client }) =>
+    client.run("chaindoc_documents_convert", (sdk) =>
+      sdk.documents.convert(
+        args.documentId,
+        args.idempotencyKey !== undefined ? { idempotencyKey: args.idempotencyKey } : undefined,
+      ),
+    ),
+});
+
+export const documentsAddSignatureBlock = defineTool({
+  name: "chaindoc_documents_add_signature_block",
+  description:
+    "Add signer roles with their Signature and Date-signed chips at the end of the text (makes the next version). " +
+    "A converted file has no signature places until you do this. Then send with chaindoc_signatures_create_request, " +
+    "one recipient per role. A role the text already holds is SIGNATURE_ROLE_TWICE.",
+  inputSchema: z.object({
+    documentId: z.string().uuid(),
+    roles: z
+      .array(z.object({ key: z.string().min(1).describe("e.g. 'client' - what recipients[].role names."), name: z.string().min(1).describe("Printed before the signature, e.g. 'Client'.") }))
+      .min(1)
+      .max(20),
+    baseVersionId: z.string().uuid().optional(),
+    idempotencyKey: z.string().optional(),
+  }),
+  handler: (args, { client }) => {
+    const { documentId, ...params } = args;
+    return client.run("chaindoc_documents_add_signature_block", (sdk) =>
+      sdk.documents.addSignatureBlock(documentId, params),
     );
   },
 });
@@ -142,7 +236,8 @@ export const documentsUpdate = defineTool({
 export const documentsUpdateRights = defineTool({
   name: "chaindoc_documents_update_rights",
   description:
-    "Update a document's access control: accessType plus optional per-email and per-role grants.",
+    "Update a document's access control: accessType ('private', 'restricted', 'team', 'public') plus per-person grants " +
+    "in accessEmails (optionally with the `account` option from chaindoc_accounts_lookup). Role audiences no longer exist.",
   inputSchema: RightsInputSchema,
   handler: (args, { client }) => {
     const { documentId, ...rights } = args;
@@ -206,8 +301,9 @@ const ListSharedSchema = z.object({
 export const documentsGet = defineTool({
   name: "chaindoc_documents_get",
   description:
-    "Fetch a document's current-version metadata (accessType, txtId, owner, etc.). " +
-    "Preconditions: key owner must have read access (owner or shared).",
+    "Fetch a document's current-version metadata (accessType, txtId, etc.) plus `format` ('text' or 'file') and " +
+    "`sendable`: a 'file' document cannot start a signature request until chaindoc_documents_convert. " +
+    "Preconditions: the key's workspace must have read access (own or shared).",
   inputSchema: DocIdSchema,
   handler: (args, { client }) =>
     client.run("chaindoc_documents_get", (sdk) => sdk.documents.get(args.documentId)),
@@ -343,7 +439,7 @@ export const documentsWaitForVerification = defineTool({
   name: "chaindoc_documents_wait_for_verification",
   description:
     "Block until a document version's blockchain anchor is verified (or timeoutMs elapses). " +
-    "Use after chaindoc_documents_create with status='published' and before chaindoc_signatures_create_request. " +
+    "Use after publishing a version (status='published') and before chaindoc_signatures_create_request. " +
     "Polls chaindoc_documents_get_verification_status every intervalMs.",
   inputSchema: z.object({
     versionId: z.string().uuid(),
@@ -373,7 +469,12 @@ export const documentsWaitForVerification = defineTool({
 
 export const documentsTools: ToolDefinition<unknown>[] = [
   documentsCreate as ToolDefinition<unknown>,
+  documentsCreateFromFile as ToolDefinition<unknown>,
+  documentsCreateFromStorage as ToolDefinition<unknown>,
   documentsUpdate as ToolDefinition<unknown>,
+  documentsGetContent as ToolDefinition<unknown>,
+  documentsConvert as ToolDefinition<unknown>,
+  documentsAddSignatureBlock as ToolDefinition<unknown>,
   documentsUpdateRights as ToolDefinition<unknown>,
   documentsVerify as ToolDefinition<unknown>,
   documentsGetVerificationStatus as ToolDefinition<unknown>,
