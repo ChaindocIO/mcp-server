@@ -74,9 +74,9 @@ manage the life; `_delete` is permanent (needs the user's yes). Documents, signa
   (`INVOICE_MONEY_OR_CREDIT_NOTE`): use a credit note.
 - **Bank details are READ ONLY here.** `chaindoc_payment_instructions_list` shows them; nothing creates, changes, defaults or
   assigns them. If the user wants to add or change an account or wallet, tell them to do it in the app under
-  `/w/{workspaceUuid}/settings/payment-details`. Never ask them to type bank details into the chat for use here. An invoice may
-  select an existing instruction by id (`paymentInstructionId`); without one the cascade (invoice, contract, partner,
-  business default) decides.
+  `/w/{workspaceUuid}/settings/payment-details`. Never ask them to type bank details into the chat for use here. Where an invoice
+  is paid is not chosen here either: the cascade (contract, partner, business default) decides, and a choice for one invoice
+  is made in the app.
 - **VAT and partners.** `chaindoc_tax_treatments_list` for `taxTreatmentId`; `chaindoc_contragents_*` for the address
   book. A counterparty's legal identity (legal name, VAT number, registration number, address) is what prints on invoices.
 
