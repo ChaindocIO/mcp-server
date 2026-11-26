@@ -60,6 +60,7 @@ async function main(): Promise<void> {
 
     const server = buildServer({
       apiKey,
+      ...(config.baseUrl !== undefined && { baseUrl: config.baseUrl }),
       environment: creds.environment ?? config.environment,
       maxRps: config.maxRps,
       timeoutMs: config.timeoutMs,
@@ -98,7 +99,7 @@ async function main(): Promise<void> {
 
   app.listen(config.port, config.host, () => {
     logger.info(
-      { host: config.host, port: config.port, environment: config.environment },
+      { host: config.host, port: config.port, apiOrigin: config.baseUrl ?? "https://api.chaindoc.io" },
       "chaindoc-mcp HTTP transport listening",
     );
   });

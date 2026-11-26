@@ -20,6 +20,9 @@ import { join } from "node:path";
 
 export interface BuildServerOptions {
   apiKey: string;
+  /** API origin (operator's setting, `CHAINDOC_BASE_URL`); absent means production. */
+  baseUrl?: string;
+  /** @deprecated Switches nothing in the SDK (every value is production); use `baseUrl`. */
   environment?: "production" | "staging" | "development";
   maxRps?: number;
   timeoutMs?: number;
@@ -41,6 +44,7 @@ export function buildServer(opts: BuildServerOptions): Server {
   const logger = opts.logger ?? createLogger();
   const client = new ChaindocClient({
     apiKey: opts.apiKey,
+    ...(opts.baseUrl !== undefined && { baseUrl: opts.baseUrl }),
     ...(opts.environment !== undefined && { environment: opts.environment }),
     ...(opts.maxRps !== undefined && { maxRps: opts.maxRps }),
     ...(opts.timeoutMs !== undefined && { timeout: opts.timeoutMs }),

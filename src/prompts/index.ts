@@ -184,9 +184,11 @@ export const setUpContractWithBilling: PromptDefinition = {
           `1) Check chaindoc_accounts_lookup for ${contragentEmail}; if they have workspaces ask me which side to propose (contragentAccount). ` +
           `2) Ask me for title, currency, dates, payment terms (one-time or recurring) and the counterparty's billing identity ` +
           `(legalName, entityType, vatNumber, registrationNumber, billing address) - it prints on the invoices and decides VAT. ` +
-          `3) Call chaindoc_contracts_create. ` +
-          `4) Confirm details and call chaindoc_contracts_send to dispatch for signing. ` +
-          `5) Once active, propose an invoice plan (chaindoc_invoices_create). Look up chaindoc_tax_treatments_list for VAT, and ` +
+          `3) The document's text must hold the signer roles \`business\` and \`contragent\`: read them with chaindoc_documents_get_content ` +
+          `and, if missing, add them with chaindoc_documents_add_signature_block (a file is converted first: chaindoc_documents_convert). ` +
+          `4) Call chaindoc_contracts_create. ` +
+          `5) Confirm details and call chaindoc_contracts_send to dispatch for signing (409 SETUP_BLOCKED lists what is missing in details.blockers). ` +
+          `6) Once active, propose an invoice plan (chaindoc_invoices_create; BUSINESS_PROFILE_INCOMPLETE means the owner completes the business profile in the app first). Look up chaindoc_tax_treatments_list for VAT, and ` +
           `chaindoc_payment_instructions_list for where the customer pays (read only: bank details are set in the Chaindoc app, ` +
           `never typed into the chat; if none fits, tell me to add one in /w/{workspaceUuid}/settings/payment-details). ` +
           `Never charge or mark anything paid without asking me.`,
@@ -331,7 +333,7 @@ export const authorAndPublishTemplate: PromptDefinition = {
           (templateId
             ? `Help me revise template ${templateId}. Read it with chaindoc_templates_get: workingCopy.content is the text to edit and workingCopy.revision is the revision you must send back. `
             : `Help me author a new template. `) +
-          `1) Decide the category and write the template content: engine content { version: 2, mode: 'template', doc } where fields and signer ` +
+          `1) Decide the category and write the template content: engine content { version: 3, mode: 'template', doc } where fields and signer ` +
           `slots live in the text (doc.attrs.fields, doc.attrs.signers). Edit an existing tree rather than inventing node types. ` +
           `2) Save with chaindoc_templates_create, or chaindoc_templates_update with content AND revision ` +
           `(409 TEMPLATE_WORKING_COPY_MOVED means someone changed it: read again and redo). ` +

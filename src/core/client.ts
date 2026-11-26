@@ -36,6 +36,9 @@ export type ChaindocSdkStatic = Pick<typeof Chaindoc, "webhooks">;
 
 export interface ChaindocClientOptions {
   apiKey: string;
+  /** API origin; absent means the SDK's default (production). */
+  baseUrl?: string;
+  /** @deprecated The SDK resolves every value to the production API; use `baseUrl`. */
   environment?: ChaindocConfig["environment"];
   logger: Logger;
   maxRps?: number;
@@ -57,6 +60,7 @@ export class ChaindocClient {
   constructor(opts: ChaindocClientOptions) {
     this.config = {
       apiKey: opts.apiKey,
+      ...(opts.baseUrl !== undefined && { baseUrl: opts.baseUrl }),
       environment: opts.environment ?? "production",
       maxRps: opts.maxRps ?? 10 / 60, // Chaindoc is 10 / 60s; default to that
       logger: opts.logger,
@@ -73,7 +77,8 @@ export class ChaindocClient {
       this.modPromise = (async () => {
         const mod = await import("@chaindoc_io/server-sdk");
         const init: ChaindocConfig = { secretKey: this.config.apiKey };
-        if (this.config.environment) init.environment = this.config.environment;
+        if (this.config.baseUrl !== undefined) init.baseUrl = this.config.baseUrl;
+        else if (this.config.environment) init.environment = this.config.environment;
         if (this.config.timeout !== undefined) init.timeout = this.config.timeout;
         if (this.config.retry !== undefined) init.retry = this.config.retry;
         const instance = new mod.Chaindoc(init);

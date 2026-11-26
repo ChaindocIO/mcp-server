@@ -122,8 +122,10 @@ const TerminateInputSchema = z.object({
 export const contractsCreate = defineTool({
   name: "chaindoc_contracts_create",
   description:
-    "Create a contract in DRAFT status from an existing document, with contragent info and optional payment terms. " +
-    "Payment-enabled contracts require a Stripe Connect account to be configured for the workspace.",
+    "Create a contract in DRAFT status from an existing TEXT document, with contragent info and optional payment terms. " +
+    "To be sent, the document's text must hold the signer roles `business` and `contragent` with their Signature chips: " +
+    "add them with chaindoc_documents_add_signature_block (a file paper is refused at send: DOCUMENT_FILE_CONVERTS). " +
+    "`stripePaymentAllowed: true` and auto-charge terms need a connected Stripe account.",
   inputSchema: CreateInputSchema,
   handler: (args, { client }) =>
     client.run("chaindoc_contracts_create", (sdk) => sdk.contracts.create(args)),
@@ -150,8 +152,8 @@ export const contractsGet = defineTool({
 export const contractsGetStatus = defineTool({
   name: "chaindoc_contracts_get_status",
   description:
-    "Lightweight contract status: lifecycle state, signing progress, and payment summary. " +
-    "Prefer this over chaindoc_contracts_get for polling.",
+    "Lightweight contract status: lifecycle state, signingPolicy, signingStatus (totalSigners, signedCount, " +
+    "pendingCount), paymentSummary and timestamps. Prefer this over chaindoc_contracts_get for polling.",
   inputSchema: IdInputSchema,
   handler: (args, { client }) =>
     client.run("chaindoc_contracts_get_status", (sdk) => sdk.contracts.getStatus(args.contractId)),
@@ -185,8 +187,12 @@ export const contractsAddPaymentSetup = defineTool({
 export const contractsSend = defineTool({
   name: "chaindoc_contracts_send",
   description:
-    "Transition a DRAFT contract to PENDING_SIGNATURE and notify both parties. " +
-    "All body fields are optional.",
+    "Send a DRAFT contract for signing (PENDING_SIGNATURE) and e-mail the signers. All body fields are optional. " +
+    "The text must hold the roles `business` and `contragent` with their Signature chips " +
+    "(chaindoc_documents_add_signature_block). Refusals: 409 SETUP_BLOCKED (`details.blockers`; e.g. no chips), " +
+    "400 SIGNATURE_ROLE_UNKNOWN (a role other than the two sides), 422 DOCUMENT_FILE_CONVERTS (the paper is a file: " +
+    "convert it), 400 KYC_NOT_VERIFIED (isKycRequired with a delegated business side whose Owner has not verified), " +
+    "400 CONTRACT_NOT_A_DRAFT.",
   inputSchema: SendInputSchema,
   handler: (args, { client }) => {
     const { contractId, ...rest } = args;
@@ -203,7 +209,8 @@ export const contractsSend = defineTool({
 export const contractsCancel = defineTool({
   name: "chaindoc_contracts_cancel",
   description:
-    "Cancel a DRAFT contract (never sent) or a PENDING_SIGNATURE contract before anyone signs. Irreversible.",
+    "Cancel (remove) a DRAFT contract. Irreversible. A sent contract is refused (403 CONTRACT_NOT_A_DRAFT): withdraw " +
+    "it with chaindoc_contracts_cancel_signing_request first (possible until somebody signs), which returns it to draft.",
   inputSchema: IdInputSchema,
   handler: (args, { client }) =>
     client.run("chaindoc_contracts_cancel", (sdk) => sdk.contracts.cancel(args.contractId)),
@@ -283,8 +290,7 @@ export const contractsCreateEmpty = defineTool({
   name: "chaindoc_contracts_create_empty",
   description:
     "Create an invoice-only contract. Activates immediately (status='active', origin='invoice_only'); " +
-    "no document attached, no signing flow. Use for manual invoicing relationships. " +
-    "Preconditions: workspace must have Stripe Connect ready.",
+    "no document attached, no signing flow. Use for manual invoicing relationships.",
   inputSchema: CreateEmptySchema,
   handler: (args, { client }) =>
     client.run("chaindoc_contracts_create_empty", (sdk) => sdk.contracts.createEmpty(args)),
@@ -293,8 +299,8 @@ export const contractsCreateEmpty = defineTool({
 export const contractsCreateMinimal = defineTool({
   name: "chaindoc_contracts_create_minimal",
   description:
-    "Create a DRAFT contract from a document + contragent email + title. Add payment setup / send later. " +
-    "Preconditions: workspace must have Stripe Connect ready.",
+    "Create a DRAFT contract from a document + contragent email + title. Add payment setup / send later; the text " +
+    "needs the roles `business` and `contragent` before chaindoc_contracts_send.",
   inputSchema: CreateMinimalSchema,
   handler: (args, { client }) =>
     client.run("chaindoc_contracts_create_minimal", (sdk) => sdk.contracts.createMinimal(args)),
@@ -303,8 +309,7 @@ export const contractsCreateMinimal = defineTool({
 export const contractsImport = defineTool({
   name: "chaindoc_contracts_import",
   description:
-    "Register an off-platform-signed contract. Activates immediately, skips the in-app signing flow. " +
-    "Preconditions: workspace must have Stripe Connect ready.",
+    "Register an off-platform-signed contract. Activates immediately, skips the in-app signing flow.",
   inputSchema: ImportSchema,
   handler: (args, { client }) =>
     client.run("chaindoc_contracts_import", (sdk) => sdk.contracts.import(args)),
@@ -325,7 +330,7 @@ export const contractsUpdate = defineTool({
 export const contractsDelete = defineTool({
   name: "chaindoc_contracts_delete",
   description:
-    "Delete a DRAFT contract. Preconditions: must be in DRAFT (returns 403/code='forbidden' or 'wrong_state' otherwise). " +
+    "Delete a DRAFT contract. Any other state is refused (403 CONTRACT_NOT_A_DRAFT, code='wrong_state'). " +
     "Decrements workspace usage atomically.",
   inputSchema: z.object({ contractId: z.string().uuid() }),
   handler: (args, { client }) =>
@@ -379,7 +384,8 @@ export const contractsSetupRecurring = defineTool({
   description:
     "Configure recurring billing on an imported ACTIVE contract. Requires ≥1 recurring paymentTerms. " +
     "Emails an approval invitation to the contragent; billing starts only after they accept and link a payment method. " +
-    "Preconditions: contract must be ACTIVE and import-origin.",
+    "Preconditions: contract must be ACTIVE and import-origin, and the workspace's Stripe account connected " +
+    "(403 STRIPE_NOT_READY otherwise).",
   inputSchema: SetupRecurringSchema,
   handler: (args, { client }) => {
     const { contractId, ...payload } = args;
@@ -443,7 +449,9 @@ export const contractsGetSigningRequest = defineTool({
 
 export const contractsResendSigningRequest = defineTool({
   name: "chaindoc_contracts_resend_signing_request",
-  description: "Resend the signing invitation email for a contract signing request.",
+  description:
+    "Resend the signing invitation e-mail of a contract's PENDING signing request. An ended request is refused " +
+    "(SIGNING_REQUEST_NOT_PENDING).",
   inputSchema: ContractRequestIdsSchema,
   handler: (args, { client }) =>
     client.run("chaindoc_contracts_resend_signing_request", (sdk) =>
@@ -453,7 +461,10 @@ export const contractsResendSigningRequest = defineTool({
 
 export const contractsCancelSigningRequest = defineTool({
   name: "chaindoc_contracts_cancel_signing_request",
-  description: "Cancel a pending contract signing request. Fails if any party has already signed.",
+  description:
+    "Withdraw a sent contract: cancels its pending signing request and returns the contract to DRAFT. Refused once " +
+    "anyone signed (SIGNING_REQUEST_HAS_A_SIGNATURE; a delegated business signature made at send counts) or when the " +
+    "request already ended (SIGNING_REQUEST_NOT_PENDING).",
   inputSchema: ContractRequestIdsSchema,
   handler: (args, { client }) =>
     client.run("chaindoc_contracts_cancel_signing_request", (sdk) =>
@@ -465,7 +476,9 @@ export const contractsBusinessSign = defineTool({
   name: "chaindoc_contracts_business_sign",
   description:
     "Sign the business side of a contract signing request using a saved-signature hash. " +
-    "Get a hash via chaindoc_signatures_get_signatures or create one via chaindoc_signatures_create_signature.",
+    "Get a hash via chaindoc_signatures_get_signatures or create one via chaindoc_signatures_create_signature. " +
+    "This signs as a person: with a key of a team workspace it is refused (403 KEY_WORKSPACE_IS_NOT_A_PERSON) and the " +
+    "business side signs in the Chaindoc app or in the embedded window instead.",
   inputSchema: BusinessSignSchema,
   handler: (args, { client }) =>
     client.run("chaindoc_contracts_business_sign", (sdk) => {

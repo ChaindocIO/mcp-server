@@ -39,7 +39,9 @@ export const embeddedCreateSession = defineTool({
   description:
     "Create a 10-minute embedded signing session for a recipient. " +
     "Pass {documentId, signatureRequestId} for standalone signing, or {contractId} for contract signing. " +
-    "An OTP email is sent automatically; the returned sessionId is consumed by the Embed SDK.",
+    "An OTP email is sent automatically; the returned sessionId is consumed by the Embed SDK. " +
+    "Refused, with no session and no OTP: a request that is closed (EMBEDDED_SIGNING_REQUEST_CLOSED, `details.status` " +
+    "says signed / cancelled / expired) and a contract never sent (EMBEDDED_CONTRACT_NOT_SIGNABLE: chaindoc_contracts_send first).",
   inputSchema: CreateSessionSchema,
   handler: (args, { client }) =>
     client.run("chaindoc_embedded_create_session", (sdk) =>

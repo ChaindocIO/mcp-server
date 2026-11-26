@@ -12,18 +12,20 @@ export const AccountChoiceSchema = z
   );
 
 /**
- * A text document: the engine's content, version 2. Fields and signer roles live in the text as chips; a
+ * A text document: the engine's content. The server answers version 3 and takes 1, 2 and 3 (each drawn by its own
+ * rules), so what an agent read is what it writes back. Fields and signer roles live in the text as chips; a
  * `template` mode text holds the field definitions (`doc.attrs.fields`) and the signer roles (`doc.attrs.signers`).
  */
 export const DocumentContentSchema = z
   .object({
-    version: z.literal(2),
+    version: z.union([z.literal(1), z.literal(2), z.literal(3)]),
     mode: z.enum(["document", "template"]),
     doc: z.record(z.unknown()),
   })
   .describe(
-    "Engine content v2: { version: 2, mode: 'document' | 'template', doc: { type: 'doc', content: [...] } }. " +
-      "Read an existing one with chaindoc_documents_get_content and edit that tree rather than inventing node types.",
+    "Engine content: { version: 3, mode: 'document' | 'template', doc: { type: 'doc', content: [...] } } (versions 1 " +
+      "and 2 are still accepted). Read an existing one with chaindoc_documents_get_content (or a template's working " +
+      "copy) and send back that tree with your change, keeping its `version`, rather than inventing node types.",
   );
 
 export const MetaTagSchema = z.object({ key: z.string(), value: z.string() });

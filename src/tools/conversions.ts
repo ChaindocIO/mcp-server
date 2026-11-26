@@ -11,7 +11,8 @@ const IdSchema = z.object({ conversionId: z.string().min(1) });
 export const conversionsGet = defineTool({
   name: "chaindoc_conversions_get",
   description:
-    "Where a file's conversion into a text document stands: 'converting', 'ready' (with documentId and versionId) or " +
+    "Where a file's conversion into a text document stands: 'converting' (with `progress` { stage, page, pages } or " +
+    "null), 'ready' (with documentId and versionId; `review` says whether the text waits for a person's review) or " +
     "'failed' (with failure.code). One read, no waiting; use chaindoc_conversions_wait to wait.",
   inputSchema: IdSchema,
   handler: (args, { client }) =>
