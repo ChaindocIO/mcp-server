@@ -30,6 +30,8 @@ Found by driving the server over stdio against a live backend. No version bump y
   session refusals.
 - **An amendment carries no money:** `agreements_create` no longer offers `modifiesPaymentTerms` /
   `paymentTermModifications` (the server refuses them, 422 `AMENDMENT_CARRIES_NO_MONEY`).
+- `chaindoc.plugin` was a zip of plugin 0.1.2 (May 2026, before text documents and the money rules): rebuilt from
+  `chaindoc-claude/`, and a test keeps the bundle equal to the folder.
 - README / usage skill / smithery: a `pk_` key is refused by the SDK; `CHAINDOC_ENVIRONMENT` switches nothing; contracts
   section (sides' chips, withdraw vs cancel, no money in amendments); content version 3.
 

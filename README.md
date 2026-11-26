@@ -112,8 +112,8 @@ Same shape as Claude Desktop.
 
 ### Cowork plugin
 
-Install the bundled plugin (`chaindoc.plugin`). It includes a `chaindoc-workflows`
-skill that scaffolds the most common flows.
+Install the bundled plugin (`chaindoc.plugin`, a zip of `chaindoc-claude/`). It carries the
+`chaindoc-usage-guide`, `find-documents` and `summarize-document` skills and the server config.
 
 ### Hosted HTTP / SSE
 
