@@ -219,7 +219,9 @@ export const contractsCancel = defineTool({
 export const contractsTerminate = defineTool({
   name: "chaindoc_contracts_terminate",
   description:
-    "Terminate an ACTIVE contract. mutual_approval contracts initiate a termination_pending flow; one_side contracts terminate immediately.",
+    "Ask to terminate an ACTIVE contract: it becomes termination_pending (webhook contract.status_changed). It is terminated " +
+    "on the request's effective date, at least the notice period ahead — one_side without the other side, mutual_approval " +
+    "once the counterparty approves — and contract.terminated is sent then. Rejected or cancelled, it is active again.",
   inputSchema: TerminateInputSchema,
   handler: (args, { client }) =>
     client.run("chaindoc_contracts_terminate", (sdk) =>

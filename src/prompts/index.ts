@@ -307,8 +307,9 @@ export const manageContractTermination: PromptDefinition = {
           `Help me terminate contract ${contractId}. ` +
           `1) Call chaindoc_contracts_termination_get_status — confirm canInitiateTermination and surface outstanding ` +
           `invoices / upcoming payments / earliest effective date. ` +
-          `2) Choose terminationType${terminationType ? ` (hint: ${terminationType})` : ""}: 'one_side' terminates immediately; ` +
-          `'mutual_approval' creates a pending request that the counterparty must approve. ` +
+          `2) Choose terminationType${terminationType ? ` (hint: ${terminationType})` : ""}: either way the contract becomes ` +
+          `termination_pending and ends on the effective date (at least the notice period ahead); 'one_side' needs no ` +
+          `approval, 'mutual_approval' needs the counterparty's. ` +
           `3) Call chaindoc_contracts_terminate. ` +
           `4) For mutual_approval, explain that the COUNTERPARTY (not me) must call chaindoc_contracts_termination_approve; ` +
           `a wrong_party error code means I tried to approve my own request. ` +
