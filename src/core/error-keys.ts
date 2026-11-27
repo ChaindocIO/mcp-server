@@ -51,6 +51,10 @@ export const ERROR_KEY_HINTS: Readonly<Record<string, string>> = {
   SIGNING_REQUEST_EXPIRED: "The request's deadline has passed: it cannot be signed. A plain request is sent again with chaindoc_signatures_resend.",
   EMBEDDED_SIGNING_REQUEST_CLOSED: "The request is closed (`details.status`): do not open the signing window. No session and no OTP were made.",
   EMBEDDED_CONTRACT_NOT_SIGNABLE: "The contract was never sent: send it with chaindoc_contracts_send, then create the session.",
+  EMBEDDED_SESSION_REQUEST_MISMATCH:
+    "What was named does not fit together: a contractSigningRequestId, signatureRequestId or documentId beside contractId is " +
+    "not that contract's, or two names point at different requests. Name the contract alone (contractId), or its request alone " +
+    "(contractSigningRequestId). No session and no OTP were made.",
   ACCOUNT_OPTION_UNAVAILABLE: "That account option is not available for this person: look it up again with chaindoc_accounts_lookup.",
   // templates
   TEMPLATE_RETIRED: "This is an old-format template and can no longer be used; recreate it in the new format (content + revision).",
