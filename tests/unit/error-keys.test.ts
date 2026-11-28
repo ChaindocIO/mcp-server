@@ -46,10 +46,17 @@ describe("typed errors pass the server's errorKey with a one-line hint", () => {
     expect(e.errorKey).toBe("ACCOUNT_READ_ONLY");
   });
 
-  it("the key's hint beats a message pattern", () => {
-    const e = toChaindocMcpError(sdkError(400, "STRIPE_NOT_READY", "Stripe Connect is not ready"));
-    expect(e.code).toBe("invalid_argument");
+  it("a key decides the state code and its own hint wins over the pattern's", () => {
+    const e = toChaindocMcpError(sdkError(403, "STRIPE_NOT_READY", "Stripe Connect must be fully configured"));
+    expect(e.code).toBe("stripe_not_ready");
     expect(e.hint).toBe(ERROR_KEY_HINTS["STRIPE_NOT_READY"]);
+  });
+
+  it("when the answer carries a key, its text is not read (key first, text only as the fallback)", () => {
+    // A text that would match the contract-draft pattern, under a key that says something else.
+    const e = toChaindocMcpError(sdkError(400, "SOMETHING_NEW_FROM_THE_SERVER", "Contract can only be deleted in draft status"));
+    expect(e.code).toBe("invalid_argument");
+    expect(e.hint).toBeUndefined();
   });
 
   it("an error with no key keeps the old message patterns", () => {

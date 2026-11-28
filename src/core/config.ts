@@ -13,11 +13,20 @@ export const ConfigSchema = z.object({
     .string()
     .min(1)
     .optional()
-    .describe("Chaindoc API key (sk_ for write, pk_ for read-only)."),
+    .describe("Chaindoc secret API key (sk_). A publishable pk_ key is refused by the SDK."),
+  // The SDK resolves every `environment` to the production API; a non-production backend is reached with a base URL
+  // only. Set by the operator (env), never by a caller: a caller-chosen host would receive the key.
+  baseUrl: z
+    .string()
+    .url()
+    .refine((u) => /^https?:\/\//.test(u), "must be an http(s) URL")
+    .transform((u) => u.replace(/\/+$/, ""))
+    .optional()
+    .describe("Chaindoc API origin, e.g. https://api.chaindoc.io (the default). Set it to reach a non-production backend."),
   environment: z
     .enum(["production", "staging", "development"])
     .default("production")
-    .describe("Chaindoc environment. Keys are environment-agnostic."),
+    .describe("Deprecated: switches nothing (every value is the production API). Use CHAINDOC_BASE_URL."),
   logLevel: z
     .enum(["trace", "debug", "info", "warn", "error", "fatal", "silent"])
     .default("info"),
@@ -70,9 +79,14 @@ export interface LoadConfigOptions {
   requireApiKey?: boolean;
 }
 
+function emptyToUndefined(v: string | undefined): string | undefined {
+  return v === undefined || v.trim() === "" ? undefined : v.trim();
+}
+
 export function loadConfig(opts: LoadConfigOptions = {}): Config {
   const parsed = ConfigSchema.safeParse({
     apiKey: process.env["CHAINDOC_API_KEY"],
+    baseUrl: emptyToUndefined(process.env["CHAINDOC_BASE_URL"]),
     environment: process.env["CHAINDOC_ENVIRONMENT"],
     logLevel: process.env["CHAINDOC_LOG_LEVEL"],
     maxRps: process.env["CHAINDOC_MAX_RPS"],

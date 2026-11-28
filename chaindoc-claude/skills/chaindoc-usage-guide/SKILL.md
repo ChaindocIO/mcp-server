@@ -24,16 +24,22 @@ If the user names "the Acme NDA" without attaching a file, assume it lives in Ch
 - **Read-only account.** `ACCOUNT_READ_ONLY`: reads and downloads work, anything that changes things is refused.
 - **Limits.** `STORAGE_LIMIT_REACHED`, `AI_LIMIT_REACHED` (file conversion), `KYC_WAITS_FOR_A_UNIT`: the workspace owner must act.
 
-Errors carry the server's `errorKey` and a one-line `hint`. Read both before deciding the next step; do not retry blindly.
+Errors carry the server's `errorKey`, the facts beside it in `details` (for example `details.blockers` of
+`SETUP_BLOCKED`, `details.status` of a request that is not pending) and a one-line `hint`. Read them before deciding the
+next step; do not retry blindly.
+
+- **Team key vs person.** A key of a team workspace cannot do what is a person's own: `chaindoc_contracts_business_sign`,
+  saved signatures (`chaindoc_signatures_get_signatures`, `_create_signature`) and `chaindoc_documents_list_shared` answer
+  `KEY_WORKSPACE_IS_NOT_A_PERSON`. The business side then signs in the Chaindoc app or in the embedded window.
 
 ## Documents are text; fields are chips
 
 A Chaindoc document is a **text** with **chips**: signature places, dates and fields are chips inside the text. There are
 no coordinates and no page boxes.
 
-- **Make a text document:** `chaindoc_documents_create` with `content` (engine content v2). To edit, read with
-  `chaindoc_documents_get_content`, change that tree, and write the next version with `chaindoc_documents_update`
-  (`content` + the `baseVersionId` you read; `DOCUMENT_WRITING_BASE_MOVED` means re-read).
+- **Make a text document:** `chaindoc_documents_create` with `content` (engine content, `version: 3`). To edit, read with
+  `chaindoc_documents_get_content`, change that tree (keep its `version`), and write the next version with
+  `chaindoc_documents_update` (`content` + the `baseVersionId` you read; `DOCUMENT_WRITING_BASE_MOVED` means re-read).
 - **From a person's file (PDF, DOCX):** `chaindoc_documents_create_from_file` (or `chaindoc_storage_upload_file` then
   `chaindoc_documents_create_from_storage`). The answer is a **conversion**, not a document: call
   `chaindoc_conversions_wait` until it is `ready`, then use `documentId` and `versionId`. The document is a DRAFT. It uses
@@ -46,6 +52,18 @@ no coordinates and no page boxes.
   (`SETUP_FIELDS_STAND_IN_THE_TEXT`). A required signer field left empty at signing is `SIGNING_FIELDS_EMPTY`.
 - **Resend:** a cancelled or expired request is re-sent with `chaindoc_signatures_resend` (a NEW request over a fresh copy);
   an active one is nudged with `chaindoc_signatures_remind`.
+
+## Contracts
+
+- The contract's paper is a text whose signer roles are exactly `business` and `contragent`, each with its Signature chip.
+  Add them with `chaindoc_documents_add_signature_block` (roles `business` and `contragent`) before
+  `chaindoc_contracts_send`; without them the send answers `SETUP_BLOCKED` (or `SIGNATURE_ROLE_UNKNOWN` for another role).
+  A file paper is converted first (`DOCUMENT_FILE_CONVERTS`). Amendments follow the same rule.
+- **Withdraw vs cancel.** `chaindoc_contracts_cancel` removes a DRAFT only (`CONTRACT_NOT_A_DRAFT` otherwise). A sent
+  contract is withdrawn with `chaindoc_contracts_cancel_signing_request` until somebody signs; it returns to draft.
+- **An amendment carries no money.** Payment terms change through invoices and series in the app, never through an
+  amendment (`AMENDMENT_CARRIES_NO_MONEY`).
+- Poll with `chaindoc_contracts_get_status` (`signingStatus`, `paymentSummary`).
 
 ## People and accounts
 

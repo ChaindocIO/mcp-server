@@ -116,8 +116,9 @@ const VerificationStatusInputSchema = z.object({ versionId: z.string().uuid() })
 export const documentsCreate = defineTool({
   name: "chaindoc_documents_create",
   description:
-    "Create a TEXT document directly from `content` (engine content v2; fields and signer places are chips in " +
-    "the text, a 'template' mode text holds the signer roles). Answers 201 with the made document. " +
+    "Create a TEXT document directly from `content` (engine content, version 3 as chaindoc_documents_get_content " +
+    "answers it; fields and signer places are chips in the text, a 'template' mode text holds the signer roles). " +
+    "Answers 201 with the made document. Signer roles are added with chaindoc_documents_add_signature_block. " +
     "To make a document from a person's file use chaindoc_documents_create_from_file instead (it is converted). " +
     "Prefer status='draft'; 'published' queues blockchain anchoring and cannot be undone.",
   inputSchema: CreateInputSchema,
@@ -160,7 +161,8 @@ export const documentsUpdate = defineTool({
   name: "chaindoc_documents_update",
   description:
     "Make the NEXT VERSION of a document (previous versions are preserved for audit). Give exactly one of: " +
-    "`content` + `baseVersionId` (the version you read; answers 200, 409 DOCUMENT_WRITING_BASE_MOVED if the document " +
+    "`content` + `baseVersionId` (the content and versionId chaindoc_documents_get_content gave, with your change; " +
+    "answers 200, 409 DOCUMENT_WRITING_BASE_MOVED if the document " +
     "moved) or `storageFileId` (a Storage file, converted asynchronously: answers 202 with a conversion, wait with " +
     "chaindoc_conversions_wait). A file document made before documents became text cannot be edited: convert it first " +
     "(chaindoc_documents_convert).",
@@ -302,7 +304,9 @@ export const documentsGet = defineTool({
   name: "chaindoc_documents_get",
   description:
     "Fetch a document's current-version metadata (accessType, txtId, etc.) plus `format` ('text' or 'file') and " +
-    "`sendable`: a 'file' document cannot start a signature request until chaindoc_documents_convert. " +
+    "`sendable`: true when the current version can be sent for signature now. It is false for a text with no signer " +
+    "roles yet (add them with chaindoc_documents_add_signature_block), for a version already out for signing, and for " +
+    "a 'file' document (chaindoc_documents_convert first). " +
     "Preconditions: the key's workspace must have read access (own or shared).",
   inputSchema: DocIdSchema,
   handler: (args, { client }) =>
@@ -330,7 +334,9 @@ export const documentsSearch = defineTool({
 
 export const documentsListShared = defineTool({
   name: "chaindoc_documents_list_shared",
-  description: "List documents explicitly shared *with* the key owner (not owned by them).",
+  description:
+    "List documents explicitly shared *with* the key owner (not owned by them). A person's list: with a key of a " +
+    "team workspace it is refused (403 KEY_WORKSPACE_IS_NOT_A_PERSON).",
   inputSchema: ListSharedSchema,
   handler: (args, { client }) =>
     client.run("chaindoc_documents_list_shared", (sdk) => sdk.documents.listShared(args)),
@@ -439,8 +445,8 @@ export const documentsWaitForVerification = defineTool({
   name: "chaindoc_documents_wait_for_verification",
   description:
     "Block until a document version's blockchain anchor is verified (or timeoutMs elapses). " +
-    "Use after publishing a version (status='published') and before chaindoc_signatures_create_request. " +
-    "Polls chaindoc_documents_get_verification_status every intervalMs.",
+    "Use after publishing a version (status='published'); a draft version is never anchored, and a signature request " +
+    "does not wait for the anchor. Polls chaindoc_documents_get_verification_status every intervalMs.",
   inputSchema: z.object({
     versionId: z.string().uuid(),
     timeoutMs: z.number().int().positive().max(120_000).default(60_000),

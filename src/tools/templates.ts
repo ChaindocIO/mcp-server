@@ -43,7 +43,7 @@ const TemplateCreateSchema = z.object({
   description: z.string().max(2000).optional(),
   category: TemplateCategoryEnum,
   content: TemplateContentSchema.describe(
-    "Engine content { version: 2, mode: 'template', doc }. Fields are chips with definitions in doc.attrs.fields; signer slots are doc.attrs.signers.",
+    "Engine content { version: 3, mode: 'template', doc } (1 and 2 still accepted). Fields are chips with definitions in doc.attrs.fields; signer slots are doc.attrs.signers.",
   ),
   meta: z.array(z.string()).optional(),
 }).strict(); // the old `contentJson` is refused, not dropped
@@ -109,7 +109,7 @@ export const templatesGetVersions = defineTool({
 export const templatesCreate = defineTool({
   name: "chaindoc_templates_create",
   description:
-    "Create a template as a DRAFT held in its working copy. Give `content` (engine content v2 with mode 'template'); " +
+    "Create a template as a DRAFT held in its working copy. Give `content` (engine content, version 3, with mode 'template'); " +
     "variables and signer slots are read off the content. Publish it with chaindoc_templates_publish before using it. " +
     "The old `contentJson` format is refused (TEMPLATE_FORMAT_RETIRED).",
   inputSchema: TemplateCreateSchema,

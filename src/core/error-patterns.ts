@@ -1,8 +1,16 @@
 import type { ChaindocErrorCode } from "./errors.js";
 
+/**
+ * A state-machine refusal the agent should treat differently from a plain bad argument.
+ *
+ * The server names its refusals with an `errorKey`; where it does, only the key decides (`errorKeys`). The text match
+ * (`statuses` + `messageRegex`) is the fallback for answers that carry no key: routes not named yet, and servers older
+ * than the key (production may answer the text before it answers the key).
+ */
 export interface ErrorPattern {
-  statusEquals: number;
-  messageRegex: RegExp;
+  errorKeys?: readonly string[];
+  statuses?: readonly number[];
+  messageRegex?: RegExp;
   code: ChaindocErrorCode;
   hint: string;
 }
@@ -10,46 +18,62 @@ export interface ErrorPattern {
 // Order matters: first match wins.
 export const ERROR_PATTERNS: ErrorPattern[] = [
   {
-    statusEquals: 400,
+    // Signing a version whose blockchain anchor is not confirmed yet. No key on the server today.
+    statuses: [400],
     messageRegex: /^Version is not verified/i,
     code: "not_verified",
     hint: "Call chaindoc_documents_wait_for_verification with the versionId before retrying.",
   },
   {
-    statusEquals: 400,
+    statuses: [400],
     messageRegex: /cannot approve your own request/i,
     code: "wrong_party",
     hint: "Only the counterparty can approve a mutual-approval termination request.",
   },
   {
-    statusEquals: 400,
-    messageRegex: /Only draft invoices can be sent/i,
+    errorKeys: ["INVOICE_NOT_A_DRAFT"],
+    statuses: [400],
+    messageRegex: /Only draft invoices can be (sent|updated)/i,
     code: "wrong_state",
-    hint: "Invoice is not in 'draft'. Inspect with chaindoc_invoices_get; only draft invoices accept send/update.",
+    hint: "The invoice is not a draft any more: read it with chaindoc_invoices_get; only a draft accepts send/update.",
   },
   {
-    statusEquals: 400,
+    statuses: [400],
     messageRegex: /Document is not public/i,
     code: "document_not_public",
     hint: "Call chaindoc_documents_update_rights with accessType='public' first.",
   },
   {
-    statusEquals: 400,
-    messageRegex: /(DRAFT only|status is not draft|must be in draft)/i,
+    // `contracts.cancel` / `delete` (403) and `send` (400) on a contract that left draft. Keyless relatives: payment
+    // terms, payment setup, attach, update and amendment delete on a contract or amendment that is not a draft.
+    errorKeys: ["CONTRACT_NOT_A_DRAFT"],
+    statuses: [400, 403],
+    messageRegex: /can only be (added|updated|deleted|attached|created)\b.*\bdraft|only draft agreements|not a draft any more/i,
     code: "wrong_state",
-    hint: "Operation requires the contract to be in DRAFT.",
+    hint:
+      "The contract (or amendment) is not a draft any more. A sent contract is withdrawn with " +
+      "chaindoc_contracts_cancel_signing_request, an active one ended with chaindoc_contracts_terminate.",
   },
   {
-    statusEquals: 400,
+    errorKeys: ["STRIPE_NOT_READY", "STRIPE_LEGACY_EXPRESS", "STRIPE_ACCOUNT_DISCONNECTED"],
+    statuses: [400],
     messageRegex: /Stripe Connect/i,
     code: "stripe_not_ready",
     hint: "Workspace owner must complete Stripe Connect onboarding in the Chaindoc dashboard.",
   },
 ];
 
-export function matchErrorPattern(status: number, message: string): ErrorPattern | undefined {
-  for (const p of ERROR_PATTERNS) {
-    if (p.statusEquals === status && p.messageRegex.test(message)) return p;
+/** The answer's key decides when there is one; the text only when there is none. */
+export function matchErrorPattern(
+  status: number | undefined,
+  message: string | undefined,
+  errorKey?: string,
+): ErrorPattern | undefined {
+  if (errorKey !== undefined) {
+    return ERROR_PATTERNS.find((p) => p.errorKeys?.includes(errorKey));
   }
-  return undefined;
+  if (status === undefined || message === undefined) return undefined;
+  return ERROR_PATTERNS.find(
+    (p) => p.statuses?.includes(status) === true && p.messageRegex !== undefined && p.messageRegex.test(message),
+  );
 }

@@ -101,7 +101,9 @@ export const signaturesCreateRequest = defineTool({
 export const signaturesGetRequestStatus = defineTool({
   name: "chaindoc_signatures_get_request_status",
   description:
-    "Check the status of a signature request: which signers have signed, due date, completion flag.",
+    "Check the status of a signature request: each signer with their `role` and whether they signed, the due date " +
+    "and the completion flag. A signer's refusal reads as status 'cancelled' with `declinedAt`, `declinedBy`, " +
+    "`declineComment` and `declinedVia` (a plain cancel leaves them null). Match signers by `role`, not by e-mail.",
   inputSchema: RequestIdSchema,
   handler: (args, { client }) =>
     client.run("chaindoc_signatures_get_request_status", (sdk) =>
@@ -134,7 +136,8 @@ export const signaturesGetMyRequests = defineTool({
   description:
     "Paginated list of signature requests for the authenticated key owner. " +
     "Optional `status` filter: 'all' | 'pending' | 'completed' | 'declined'. " +
-    "Response includes totals: total, totalPending, totalCompleted, totalExpired.",
+    "Answers { items, total, pageNumber, pageSize }; each item carries signers[].role, createdAt, completedAt and the " +
+    "decline fields (declinedAt, declinedBy, declineComment, declinedVia).",
   inputSchema: GetMyRequestsSchema,
   handler: (args, { client }) =>
     client.run("chaindoc_signatures_get_my_requests", (sdk) => {
@@ -151,7 +154,8 @@ export const signaturesGetSignatures = defineTool({
   name: "chaindoc_signatures_get_signatures",
   description:
     "Paginated list of saved signature images on the authenticated user's account " +
-    "(items[].hash, imageMedia, createdAt). For the list of signature requests, use chaindoc_signatures_get_my_requests.",
+    "(items[].hash, imageMedia, createdAt). A person's list: with a key of a team workspace it is refused " +
+    "(403 KEY_WORKSPACE_IS_NOT_A_PERSON). For the list of signature requests, use chaindoc_signatures_get_my_requests.",
   inputSchema: PaginationSchema,
   handler: (args, { client }) =>
     client.run("chaindoc_signatures_get_signatures", (sdk) =>
@@ -193,8 +197,9 @@ const ValidatePdfFileInputSchema = FileInputSchema; // mimeType: application/pdf
 export const signaturesEditRequest = defineTool({
   name: "chaindoc_signatures_edit_request",
   description:
-    "Reassign a signer slot on a PENDING signature request (optionally with the `account` option from chaindoc_accounts_lookup). Preconditions: request must be pending. " +
-    "Otherwise returns code='wrong_state'.",
+    "Reassign a signer slot on a PENDING signature request (optionally with the `account` option from " +
+    "chaindoc_accounts_lookup); `signerId` is `signers[].id` from chaindoc_signatures_get_request_status. A request " +
+    "that is no longer open, or a signer who already acted, is refused. The new signer is e-mailed.",
   inputSchema: EditRequestSchema,
   handler: (args, { client }) =>
     client.run("chaindoc_signatures_edit_request", (sdk) =>
@@ -252,7 +257,8 @@ export const signaturesCreateSignature = defineTool({
   name: "chaindoc_signatures_create_signature",
   description:
     "Create a reusable saved signature from an uploaded image. Upload via chaindoc_media_upload first, " +
-    "then pass the returned media handle. The new signature's `hash` is the id used by chaindoc_contracts_business_sign.",
+    "then pass the returned `media` handle. The new signature's `hash` is the id used by chaindoc_contracts_business_sign. " +
+    "Saved signatures are a person's: with a key of a team workspace they are refused (KEY_WORKSPACE_IS_NOT_A_PERSON).",
   inputSchema: CreateSignatureSchema,
   handler: (args, { client }) =>
     client.run("chaindoc_signatures_create_signature", (sdk) =>

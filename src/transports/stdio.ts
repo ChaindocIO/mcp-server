@@ -9,6 +9,7 @@ async function main(): Promise<void> {
   const logger = createLogger(config.logLevel);
   const server = buildServer({
     apiKey: config.apiKey!, // requireApiKey above guarantees this
+    ...(config.baseUrl !== undefined && { baseUrl: config.baseUrl }),
     environment: config.environment,
     maxRps: config.maxRps,
     timeoutMs: config.timeoutMs,
@@ -33,7 +34,7 @@ async function main(): Promise<void> {
   await server.connect(transport);
 
   logger.info(
-    { environment: config.environment, maxRps: config.maxRps },
+    { apiOrigin: config.baseUrl ?? "https://api.chaindoc.io", maxRps: config.maxRps },
     "chaindoc-mcp listening on stdio",
   );
 }

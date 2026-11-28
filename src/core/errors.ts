@@ -102,28 +102,25 @@ export function toChaindocMcpError(err: unknown): ChaindocMcpError {
       };
       if (typeof e.requestId === "string") out.requestId = e.requestId;
       if (typeof e.retryAfter === "number") out.retryAfter = e.retryAfter;
-      // Lift validation-array messages out of details into `validation`.
-      const responseMessage = e.response?.message;
-      if (Array.isArray(responseMessage)) {
-        out.validation = responseMessage;
-      } else if (e.body !== undefined) {
-        out.details = e.body;
-      }
-      // The server's own reason, with a hint when we know the key.
+      // The answer's body: the SDK keeps it on `response` (older throwers used `body`). A validation list goes to
+      // `validation`; the facts the server sends beside its key (`blockers`, `status`, `role`/`roles`, `convert`,
+      // `fields`...) go to `details`, so the agent can act on them.
+      const body = e.response !== undefined ? e.response : e.body;
+      const responseMessage = isRecord(body) ? body["message"] : undefined;
+      if (Array.isArray(responseMessage)) out.validation = responseMessage;
+      const facts = factsOf(body);
+      if (facts !== undefined) out.details = facts;
+      // The server's own reason decides; a known state refusal also refines the generic code. Without a key the
+      // message text is the fallback (servers that do not send the key yet).
       const errorKey = readErrorKey(e);
-      if (errorKey !== undefined) {
-        out.errorKey = errorKey;
-        const hint = hintForErrorKey(errorKey);
-        if (hint !== undefined) out.hint = hint;
+      if (errorKey !== undefined) out.errorKey = errorKey;
+      const pattern = matchErrorPattern(status, typeof e.message === "string" ? e.message : undefined, errorKey);
+      if (pattern !== undefined) {
+        out.code = pattern.code;
+        out.hint = pattern.hint;
       }
-      // Pattern pass: refine the generic code with a state-machine code + hint.
-      if (out.hint === undefined && typeof e.message === "string") {
-        const p = matchErrorPattern(status, e.message);
-        if (p !== undefined) {
-          out.code = p.code;
-          out.hint = p.hint;
-        }
-      }
+      const keyHint = errorKey !== undefined ? hintForErrorKey(errorKey) : undefined;
+      if (keyHint !== undefined) out.hint = keyHint;
       return out;
     }
   }
@@ -139,13 +136,27 @@ export function toChaindocMcpError(err: unknown): ChaindocMcpError {
       };
       const hint = hintForErrorKey(e.errorKey);
       if (hint !== undefined) out.hint = hint;
-      if (e.response !== undefined) out.details = e.response;
+      const facts = factsOf(e.response);
+      if (facts !== undefined) out.details = facts;
       return out;
     }
   }
 
   if (err instanceof Error) return { code: "internal_error", message: err.message };
   return { code: "internal_error", message: String(err) };
+}
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+/** What the body says beside the words: everything but the message, the HTTP reason and the key itself. */
+const NOT_FACTS = new Set(["message", "error", "statusCode", "errorKey"]);
+function factsOf(body: unknown): unknown {
+  if (body === undefined || body === null) return undefined;
+  if (!isRecord(body)) return typeof body === "string" ? undefined : body;
+  const facts = Object.fromEntries(Object.entries(body).filter(([k]) => !NOT_FACTS.has(k)));
+  return Object.keys(facts).length > 0 ? facts : undefined;
 }
 
 /**

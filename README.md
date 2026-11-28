@@ -48,8 +48,8 @@ Each capability below maps to a tool group in this server. Click through for
 the product page on [chaindoc.io](https://chaindoc.io).
 
 - **[Blockchain document creation](https://chaindoc.io/create-document)** —
-  upload a PDF, DOC, image, or video and anchor a tamper-evident hash on
-  chain. Returns a verifiable `versionHash`.
+  write a text document (or convert a PDF / DOCX into one) and anchor a
+  tamper-evident hash of each published version on chain.
 - **[E-signature requests](https://chaindoc.io/signing)** — single- or
   multi-party signing flows; recipients sign in parallel with delegated-API or
   embedded-iframe modes.
@@ -82,8 +82,8 @@ npm install -g @chaindoc_io/mcp-server
 npx @chaindoc_io/mcp-server
 ```
 
-You need a Chaindoc API key (Business plan). Create one in **Settings → API Access**.
-Use `sk_*` for full read/write or `pk_*` for read-only operations.
+You need a Chaindoc secret API key `sk_*` (Business plan). Create one in **Settings → API Access**.
+A publishable `pk_*` key is refused (the server SDK takes secret keys only).
 
 ## Configure your MCP client
 
@@ -96,13 +96,15 @@ Use `sk_*` for full read/write or `pk_*` for read-only operations.
       "command": "npx",
       "args": ["-y", "@chaindoc_io/mcp-server"],
       "env": {
-        "CHAINDOC_API_KEY": "sk_your_secret_key",
-        "CHAINDOC_ENVIRONMENT": "production"
+        "CHAINDOC_API_KEY": "sk_your_secret_key"
       }
     }
   }
 }
 ```
+
+The server talks to the production API (`https://api.chaindoc.io`). To point it at another Chaindoc backend, set
+`CHAINDOC_BASE_URL` to that backend's origin together with a key issued there. `CHAINDOC_ENVIRONMENT` switches nothing.
 
 ### Cursor (`.cursor/mcp.json`)
 
@@ -110,8 +112,8 @@ Same shape as Claude Desktop.
 
 ### Cowork plugin
 
-Install the bundled plugin (`chaindoc.plugin`). It includes a `chaindoc-workflows`
-skill that scaffolds the most common flows.
+Install the bundled plugin (`chaindoc.plugin`, a zip of `chaindoc-claude/`). It carries the
+`chaindoc-usage-guide`, `find-documents` and `summarize-document` skills and the server config.
 
 ### Hosted HTTP / SSE
 
@@ -130,10 +132,11 @@ one deployment can serve many tenants.
 
 | Env var | Required | Default | Notes |
 |---|---|---|---|
-| `CHAINDOC_API_KEY` | yes (stdio) / no (HTTP if header used) | – | `sk_` or `pk_`. |
-| `CHAINDOC_ENVIRONMENT` | no | `production` | `production` \| `staging` \| `development`. |
+| `CHAINDOC_API_KEY` | yes (stdio) / no (HTTP if header used) | – | Secret key `sk_` (a `pk_` key is refused). |
+| `CHAINDOC_BASE_URL` | no | `https://api.chaindoc.io` | API origin. Set it (with a key of that backend) to reach a non-production backend. Operator's setting only: a caller never chooses the host. |
+| `CHAINDOC_ENVIRONMENT` | no | `production` | **Deprecated, switches nothing**: every value is the production API. Use `CHAINDOC_BASE_URL`. |
 | `CHAINDOC_LOG_LEVEL` | no | `info` | pino levels. |
-| `CHAINDOC_MAX_RPS` | no | `0.166` (10/60s) | Client-side cap, matches Chaindoc's limit. |
+| `CHAINDOC_MAX_RPS` | no | `0.166` (10/60s) | Client-side cap over all calls. Conservative: the API limits most routes to 10 requests a minute each. |
 | `CHAINDOC_TIMEOUT_MS` | no | `30000` | SDK request timeout. |
 | `CHAINDOC_RETRY_MAX_RETRIES` | no | `3` | SDK retry tuning. |
 | `CHAINDOC_RETRY_BASE_DELAY_MS` | no | `1000` | |
@@ -159,7 +162,8 @@ MCP `isError: true` with a normalized envelope:
 }
 ```
 
-`errorKey` is the server's own machine-readable reason, passed through as sent; `hint` is one line for the keys we
+`errorKey` is the server's own machine-readable reason, passed through as sent; `details` carries the facts the server
+sends beside it (`blockers`, `status`, `role`/`roles`, `convert`...); `hint` is one line for the keys we
 know (plan, read-only account, limits, `DOCUMENT_FILE_CONVERTS`, `SIGNING_FIELDS_EMPTY`, `TEMPLATE_*`, `STRIPE_*`,
 `PROCESS_*`, ...). Errors raised by this server itself: `confirmation_required` (a money act without `confirm=true`),
 `unavailable`, `file_input_refused`.
@@ -229,6 +233,13 @@ is never redirected); the hosted HTTP server refuses them. Size cap 250 MB, enfo
 | `chaindoc_contracts_cancel` | `POST /contracts/:contractId/cancel` |
 | `chaindoc_contracts_terminate` | `POST /contracts/:contractId/terminate` |
 
+A contract (and an amendment) is sent only when its text holds the signer roles `business` and `contragent` with their
+Signature chips (`chaindoc_documents_add_signature_block`); otherwise `send` answers `409 SETUP_BLOCKED` with
+`details.blockers`. A sent contract is withdrawn with `chaindoc_contracts_cancel_signing_request` (back to draft) until
+somebody signs; `chaindoc_contracts_cancel` removes drafts only. An amendment carries no money. Acts that are a person's
+(`business_sign`, saved signatures, documents shared with you) are refused to a team workspace's key
+(`KEY_WORKSPACE_IS_NOT_A_PERSON`).
+
 ### Invoices
 
 | Tool | Endpoint |
@@ -258,7 +269,7 @@ said yes. Money calls are not retried automatically.
 | Tool | Endpoint |
 |---|---|
 | `chaindoc_templates_list` / `_get` / `_get_versions` | `GET /templates...` (`_get` returns `workingCopy.revision`) |
-| `chaindoc_templates_create` / `_update` | `POST` / `PATCH /templates...` (`content` v2 + `revision`) |
+| `chaindoc_templates_create` / `_update` | `POST` / `PATCH /templates...` (`content` version 3 + `revision`) |
 | `chaindoc_templates_publish` / `_archive` / `_restore` | `POST /templates/:templateId/{publish,archive,restore}` |
 | `chaindoc_templates_delete` | `DELETE /templates/:templateId` (permanent, **needs `confirm`**) |
 | `chaindoc_templates_create_document` | `POST /templates/:templateId/documents` |
@@ -348,9 +359,10 @@ npm run dev:http        # local HTTP at :8787
 
 ### Manual smoke list (after `npm run inspect`)
 
-- Contract lifecycle: `contracts.create_minimal` → `attach_document` →
-  `payment_terms.create` → `send` → `business_sign` → `invoices.create` →
-  `terminate`.
+- Contract lifecycle: `documents.add_signature_block` (`business` + `contragent`) →
+  `contracts.create_minimal` → `payment_terms.create` → `send` → `business_sign`
+  (a personal workspace's key) → `invoices.create` → `terminate`; withdraw a sent
+  one with `cancel_signing_request`.
 - File flow: `documents.create_from_file` → `conversions.wait` → `add_signature_block` → `get_content` →
   `signatures.create_request` (by role).
 - Template lifecycle: `templates.create` → `get` (revision) → `update` → `publish` → `create_document`.
@@ -368,8 +380,9 @@ npm run dev:http        # local HTTP at :8787
   and `Authorization` headers.
 - The webhook verifier is the only thing that touches webhook secrets, and it's
   one-shot — secrets aren't stored.
-- Token-bucket throttle (`CHAINDOC_MAX_RPS`) defaults to Chaindoc's actual
-  limit (10 requests / 60 seconds) so an agent loop won't blow the quota.
+- Token-bucket throttle (`CHAINDOC_MAX_RPS`) defaults to 10 requests / 60 seconds
+  over all calls, below the API's per-route limit (10 a minute on most routes), so an
+  agent loop won't blow the quota.
 - Circuit breaker opens after 3 consecutive 5xx and short-circuits for 30s.
 - The Chaindoc SDK retries reads; writes are retried only when the request provably never reached the server (or on
   429), and money calls are never retried automatically.

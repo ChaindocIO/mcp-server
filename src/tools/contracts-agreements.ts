@@ -1,31 +1,17 @@
 import { z } from "zod";
 import { defineTool, type ToolDefinition } from "./types.js";
 
-const PaymentTermModificationSchema = z.object({
-  action: z.enum(["add", "update", "deactivate"]),
-  paymentTermId: z.string().uuid().optional(),
-  type: z.enum(["deposit", "recurring", "one_time"]).optional(),
-  name: z.string().optional(),
-  description: z.string().optional(),
-  amount: z.string().regex(/^\d+(\.\d{1,2})?$/).optional(),
-  frequency: z.enum(["weekly", "biweekly", "monthly", "quarterly", "yearly"]).optional(),
-  dayOfPeriod: z.number().int().min(1).max(28).optional(),
-  startDate: z.string().datetime({ offset: true }).optional(),
-  endDate: z.string().datetime({ offset: true }).optional(),
-  totalPayments: z.number().int().positive().optional(),
-  dueDate: z.string().datetime({ offset: true }).optional(),
-  autoCharge: z.boolean().optional(),
-});
-
-const AgreementCreateSchema = z.object({
-  contractId: z.string().uuid(),
-  documentId: z.string().uuid(),
-  title: z.string().min(1).max(200),
-  description: z.string().max(2000).optional(),
-  effectiveDate: z.string().datetime({ offset: true }).optional(),
-  modifiesPaymentTerms: z.boolean().optional(),
-  paymentTermModifications: z.array(PaymentTermModificationSchema).optional(),
-});
+// An amendment carries no money: the server refuses `modifiesPaymentTerms: true` and any `paymentTermModifications`
+// (422 AMENDMENT_CARRIES_NO_MONEY), so they are not offered here; strict() refuses them by name instead of dropping them.
+const AgreementCreateSchema = z
+  .object({
+    contractId: z.string().uuid(),
+    documentId: z.string().uuid(),
+    title: z.string().min(1).max(200),
+    description: z.string().max(2000).optional(),
+    effectiveDate: z.string().datetime({ offset: true }).optional(),
+  })
+  .strict();
 
 const AgreementIdSchema = z.object({
   contractId: z.string().uuid(),
@@ -44,8 +30,10 @@ const AgreementInitiateSchema = z.object({
 export const contractsAgreementsCreate = defineTool({
   name: "chaindoc_contracts_agreements_create",
   description:
-    "Create an additional agreement (amendment) on an existing contract, in DRAFT. " +
-    "Document must be owned by the key owner. May carry paymentTermModifications that apply once signed.",
+    "Create an additional agreement (amendment) on an existing contract, in DRAFT, from a TEXT document owned by the " +
+    "key owner. An amendment carries no money: payment terms change through invoices and series in the Chaindoc app. " +
+    "Before chaindoc_contracts_agreements_initiate_signing its text needs the roles `business` and `contragent` " +
+    "(chaindoc_documents_add_signature_block).",
   inputSchema: AgreementCreateSchema,
   handler: (args, { client }) => {
     const { contractId, ...payload } = args;
@@ -78,7 +66,9 @@ export const contractsAgreementsGet = defineTool({
 export const contractsAgreementsInitiateSigning = defineTool({
   name: "chaindoc_contracts_agreements_initiate_signing",
   description:
-    "Send a DRAFT amendment for signing. Preconditions: parent contract must be ACTIVE; amendment must be in DRAFT.",
+    "Send a DRAFT amendment for signing. Preconditions: parent contract must be ACTIVE; amendment must be in DRAFT; its " +
+    "text holds the roles `business` and `contragent` with their Signature chips. Refusals as chaindoc_contracts_send: " +
+    "409 SETUP_BLOCKED (`details.blockers`), 400 SIGNATURE_ROLE_UNKNOWN, 422 DOCUMENT_FILE_CONVERTS, 400 KYC_NOT_VERIFIED.",
   inputSchema: AgreementInitiateSchema,
   handler: (args, { client }) => {
     const hasAny =

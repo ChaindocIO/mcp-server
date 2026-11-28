@@ -124,7 +124,8 @@ const CreditNoteInputSchema = z.object({
 export const invoicesCreate = defineTool({
   name: "chaindoc_invoices_create",
   description:
-    "Create a manual invoice on an ACTIVE contract. Optional: `discount`, `taxTreatmentId` (chaindoc_tax_treatments_list), " +
+    "Create a manual invoice on an ACTIVE contract. The workspace's business profile must hold what an invoice prints " +
+    "(else 403 BUSINESS_PROFILE_INCOMPLETE: the owner completes it in the app). Optional: `discount`, `taxTreatmentId` (chaindoc_tax_treatments_list), " +
     "`stripePaymentAllowed`, `showUnpaid`, `takePaidAhead`. Where the customer pays is never chosen here: the cascade " +
     "(contract > counterparty > business default) decides, and bank details are chosen in the Chaindoc app. " +
     "sendImmediately=true emails it right away. autoCharge=true CHARGES the customer's saved payment method: MONEY - " +
