@@ -15,7 +15,7 @@ const skills = readdirSync(skillsDir).map((d) => ({
 describe("the Claude plugin", () => {
   it("plugin and server versions agree", () => {
     expect(plugin.version).toBe(pkg.version);
-    expect(pkg.version).toBe("0.3.0");
+    expect(pkg.version).toBe("0.4.0");
   });
 
   it("every tool a skill names exists", () => {

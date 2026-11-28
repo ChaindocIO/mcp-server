@@ -13,9 +13,9 @@ send [e-signature requests](https://chaindoc.io/signing), render
 
 What changed in November 2026 → server-sdk `docs/WHATS-CHANGED-2026-11.md`
 
-> **Status:** v0.3.0 (124 tools). Built against the
+> **Status:** v0.4.0 (124 tools). Built against the
 > [Chaindoc REST API and SDK docs](https://chaindoc.io/docs). Runtime depends on
-> [`@chaindoc_io/server-sdk@^3.0.0`](https://www.npmjs.com/package/@chaindoc_io/server-sdk).
+> [`@chaindoc_io/server-sdk@^3.1.0`](https://www.npmjs.com/package/@chaindoc_io/server-sdk).
 > **0.3.0 is a breaking update**, see [CHANGELOG.md](CHANGELOG.md): documents are text with chips (a file is
 > converted, signature places are bound by role, not coordinates), templates use the new content format,
 > template previews are gone, and money acts need an explicit confirmation. Every call needs a **Business plan**.

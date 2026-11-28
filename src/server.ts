@@ -61,7 +61,7 @@ export function buildServer(opts: BuildServerOptions): Server {
   const server = new Server(
     {
       name: "chaindoc-mcp",
-      version: "0.3.0",
+      version: "0.4.0",
     },
     {
       capabilities: {

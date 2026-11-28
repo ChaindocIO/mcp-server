@@ -1,8 +1,15 @@
 # Changelog
 
-## [Unreleased]
+## [0.4.0] - 2026-11-28
 
-Found by driving the server over stdio against a live backend. No version bump yet.
+The tools now say what the live API does, found by driving the server over stdio against a live backend, and run on
+`@chaindoc_io/server-sdk` 3.1.0, whose fix makes seven tools work again.
+
+### Changed
+- **Dependency: `@chaindoc_io/server-sdk` ^3.1.0.** With 3.0.0 seven tools answered `400` on every call ("Body cannot
+  be empty when content-type is set to 'application/json'"): `contracts_delete`, `contracts_payment_terms_delete`,
+  `contracts_agreements_delete`, `templates_delete`, `contracts_cancel_signing_request`, `contracts_termination_cancel`,
+  `contracts_cancel_recurring_approval`. 3.1.0 fixes them.
 
 ### Added
 - `CHAINDOC_BASE_URL`: the API origin. The server SDK resolves every `CHAINDOC_ENVIRONMENT` to the production API, so
@@ -34,12 +41,6 @@ Found by driving the server over stdio against a live backend. No version bump y
   `chaindoc-claude/`, and a test keeps the bundle equal to the folder.
 - README / usage skill / smithery: a `pk_` key is refused by the SDK; `CHAINDOC_ENVIRONMENT` switches nothing; contracts
   section (sides' chips, withdraw vs cancel, no money in amendments); content version 3.
-
-### Release note (for the version bump)
-- With the published server-sdk 3.0.0 seven tools answer `400` on every call ("Body cannot be empty when content-type is
-  set to 'application/json'"): `contracts_delete`, `contracts_payment_terms_delete`, `contracts_agreements_delete`,
-  `templates_delete`, `contracts_cancel_signing_request`, `contracts_termination_cancel`,
-  `contracts_cancel_recurring_approval`. The SDK's `main` fixes them; the release must bump the SDK dependency.
 
 ## [0.3.0] - 2026-11-10
 
